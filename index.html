@@ -1,0 +1,1280 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>تتبع صيانة السيارات</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global Firebase variables (will be initialized on DOMContentLoaded)
+        window.firebaseApp = null;
+        window.db = null;
+        window.auth = null;
+        window.userId = null;
+        window.isAuthReady = false; // Flag to indicate if auth is ready
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                // Initialize Firebase
+                const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+                window.firebaseApp = initializeApp(firebaseConfig);
+                window.db = getFirestore(window.firebaseApp);
+                window.auth = getAuth(window.firebaseApp);
+
+                // Authenticate user
+                const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                if (initialAuthToken) {
+                    await signInWithCustomToken(window.auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(window.auth);
+                }
+
+                onAuthStateChanged(window.auth, (user) => {
+                    if (user) {
+                        window.userId = user.uid;
+                        document.getElementById('userIdDisplay').textContent = `معرف المستخدم: ${window.userId}`;
+                        window.isAuthReady = true;
+                        // Fetch and display data once authenticated
+                        fetchAndDisplayAllData();
+                    } else {
+                        console.log("No user is signed in.");
+                        window.userId = null;
+                        document.getElementById('userIdDisplay').textContent = 'معرف المستخدم: غير متاح';
+                        window.isAuthReady = false;
+                    }
+                    document.getElementById('loadingSpinner').classList.add('hidden'); // Hide spinner after auth attempt
+                });
+
+            } catch (error) {
+                console.error("Error initializing Firebase or authenticating:", error);
+                document.getElementById('loadingSpinner').classList.add('hidden'); // Hide spinner on error
+                document.getElementById('errorMessage').textContent = `خطأ في تحميل التطبيق: ${error.message}`;
+                document.getElementById('errorMessage').classList.remove('hidden');
+            }
+        });
+
+        // Function to get collection path for a specific type
+        function getCollectionPath(collectionName) {
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+            if (!window.userId) {
+                console.error("User ID is not available. Cannot construct collection path.");
+                return null;
+            }
+            return `artifacts/${appId}/users/${window.userId}/${collectionName}`;
+        }
+
+        // --- Data Fetching Functions ---
+        async function fetchAndDisplayAllData() {
+            if (!window.isAuthReady) {
+                console.log("Auth not ready, skipping data fetch.");
+                return;
+            }
+            console.log("Fetching and displaying all data for user:", window.userId);
+            fetchAndDisplayDailyMaintenance();
+            fetchAndDisplayWeeklyMaintenance();
+            fetchAndDisplayScheduledMaintenance();
+            fetchAndDisplayEmergencyMaintenance();
+            fetchAndDisplayAnnualReports();
+            fetchAndDisplayDistribution();
+        }
+
+        function fetchAndDisplayDailyMaintenance() {
+            const collectionPath = getCollectionPath('dailyMaintenance');
+            if (!collectionPath) return;
+            onSnapshot(collection(window.db, collectionPath), (snapshot) => {
+                const tableBody = document.getElementById('dailyMaintenanceTableBody');
+                tableBody.innerHTML = ''; // Clear existing rows
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    const newRow = tableBody.insertRow();
+                    newRow.innerHTML = `
+                        <td>${data.carNumber}</td>
+                        <td>${data.date}</td>
+                        <td><input type="checkbox" ${data.oilCheck ? 'checked' : ''} disabled></td>
+                        <td><input type="checkbox" ${data.tirePressure ? 'checked' : ''} disabled></td>
+                        <td><input type="checkbox" ${data.lights ? 'checked' : ''} disabled></td>
+                        <td><input type="checkbox" ${data.brakes ? 'checked' : ''} disabled></td>
+                        <td><input type="checkbox" ${data.coolant ? 'checked' : ''} disabled></td>
+                        <td><input type="checkbox" ${data.cleanliness ? 'checked' : ''} disabled></td>
+                        <td>${data.notes}</td>
+                        <td>${data.driverSignature}</td>
+                    `;
+                });
+            }, (error) => {
+                console.error("Error fetching daily maintenance:", error);
+            });
+        }
+
+        function fetchAndDisplayWeeklyMaintenance() {
+            const collectionPath = getCollectionPath('weeklyMaintenance');
+            if (!collectionPath) return;
+            onSnapshot(collection(window.db, collectionPath), (snapshot) => {
+                const tableBody = document.getElementById('weeklyMaintenanceTableBody');
+                tableBody.innerHTML = '';
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    const newRow = tableBody.insertRow();
+                    newRow.innerHTML = `
+                        <td>${data.carNumber}</td>
+                        <td>${data.week}</td>
+                        <td>${data.date}</td>
+                        <td><input type="checkbox" ${data.batteryCheck ? 'checked' : ''} disabled></td>
+                        <td><input type="checkbox" ${data.engineBelt ? 'checked' : ''} disabled></td>
+                        <td><input type="checkbox" ${data.suspension ? 'checked' : ''} disabled></td>
+                        <td><input type="checkbox" ${data.filters ? 'checked' : ''} disabled></td>
+                        <td>${data.notes}</td>
+                        <td>${data.technicianName}</td>
+                    `;
+                });
+            }, (error) => {
+                console.error("Error fetching weekly maintenance:", error);
+            });
+        }
+
+        function fetchAndDisplayScheduledMaintenance() {
+            const collectionPath = getCollectionPath('scheduledMaintenance');
+            if (!collectionPath) return;
+            onSnapshot(collection(window.db, collectionPath), (snapshot) => {
+                const tableBody = document.getElementById('scheduledMaintenanceTableBody');
+                tableBody.innerHTML = '';
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    const newRow = tableBody.insertRow();
+                    newRow.innerHTML = `
+                        <td>${data.carNumber}</td>
+                        <td>${data.type}</td>
+                        <td>${data.lastDate}</td>
+                        <td>${data.mileage}</td>
+                        <td>${data.tasks}</td>
+                        <td>${data.nextDate}</td>
+                        <td>${data.nextMileage}</td>
+                        <td>${data.workshop}</td>
+                        <td>${data.notes}</td>
+                    `;
+                });
+            }, (error) => {
+                console.error("Error fetching scheduled maintenance:", error);
+            });
+        }
+
+        function fetchAndDisplayEmergencyMaintenance() {
+            const collectionPath = getCollectionPath('emergencyMaintenance');
+            if (!collectionPath) return;
+            onSnapshot(collection(window.db, collectionPath), (snapshot) => {
+                const tableBody = document.getElementById('emergencyMaintenanceTableBody');
+                tableBody.innerHTML = '';
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    const newRow = tableBody.insertRow();
+                    newRow.innerHTML = `
+                        <td>${data.requestId}</td>
+                        <td>${data.carNumber}</td>
+                        <td>${data.date}</td>
+                        <td>${data.description}</td>
+                        <td>${data.priority}</td>
+                        <td>${data.status}</td>
+                        <td>${data.cost}</td>
+                        <td>${data.workshop}</td>
+                        <td>${data.completionDate}</td>
+                        <td>${data.notes}</td>
+                    `;
+                });
+            }, (error) => {
+                console.error("Error fetching emergency maintenance:", error);
+            });
+        }
+
+        function fetchAndDisplayAnnualReports() {
+            const collectionPath = getCollectionPath('annualReports');
+            if (!collectionPath) return;
+            onSnapshot(collection(window.db, collectionPath), (snapshot) => {
+                const tableBody = document.getElementById('annualReportTableBody');
+                tableBody.innerHTML = '';
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    const newRow = tableBody.insertRow();
+                    newRow.innerHTML = `
+                        <td>${data.carNumber}</td>
+                        <td>${data.mileage}</td>
+                        <td>${data.scheduledCount}</td>
+                        <td>${data.emergencyCount}</td>
+                        <td>${data.totalCost}</td>
+                        <td>${data.recurringFaults}</td>
+                        <td>${data.carStatus}</td>
+                        <td>${data.notesRecommendations}</td>
+                    `;
+                });
+            }, (error) => {
+                console.error("Error fetching annual reports:", error);
+            });
+        }
+
+        function fetchAndDisplayDistribution() {
+            const collectionPath = getCollectionPath('distribution');
+            if (!collectionPath) return;
+            onSnapshot(collection(window.db, collectionPath), (snapshot) => {
+                const tableBody = document.getElementById('distributionTableBody');
+                tableBody.innerHTML = '';
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    const newRow = tableBody.insertRow();
+                    newRow.innerHTML = `
+                        <td>${data.groupNumber}</td>
+                        <td>${data.carsIncluded}</td>
+                        <td>${data.maintenanceDays}</td>
+                        <td>${data.nextScheduledDate}</td>
+                    `;
+                });
+            }, (error) => {
+                console.error("Error fetching distribution data:", error);
+            });
+        }
+
+        // Expose functions to global scope for HTML onclick attributes
+        window.fetchAndDisplayAllData = fetchAndDisplayAllData;
+        window.getCollectionPath = getCollectionPath;
+        window.addDoc = addDoc;
+        window.collection = collection;
+        window.db = window.db; // Re-expose db after potential initialization
+        window.alert = (message) => { // Custom alert function to avoid window.alert()
+            const modal = document.getElementById('customAlertDialog');
+            document.getElementById('customAlertMessage').textContent = message;
+            modal.style.display = 'flex';
+        };
+        window.closeCustomAlert = () => {
+            document.getElementById('customAlertDialog').style.display = 'none';
+        };
+    </script>
+    <style>
+        /* Custom styles for Inter font and general body styling */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* Light gray background */
+            direction: rtl; /* Right-to-left for Arabic */
+            text-align: right; /* Align text to the right */
+        }
+        /* Custom scrollbar for better aesthetics */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        /* Style for active tab */
+        .tab-button.active {
+            background-color: #4f46e5; /* Indigo 600 */
+            color: white;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        /* Table header styling */
+        th {
+            background-color: #e0e7ff; /* Indigo 100 */
+            color: #3730a3; /* Indigo 900 */
+            padding: 12px 16px;
+            text-align: right;
+            border-bottom: 2px solid #c7d2fe; /* Indigo 200 */
+        }
+        /* Table row styling */
+        td {
+            padding: 10px 16px;
+            border-bottom: 1px solid #e5e7eb; /* Gray 200 */
+        }
+        /* Alternate row background for readability */
+        tr:nth-child(even) {
+            background-color: #f9fafb; /* Gray 50 */
+        }
+        /* Hover effect for rows */
+        tr:hover {
+            background-color: #eff6ff; /* Blue 50 */
+        }
+        /* Button styling */
+        .btn {
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: all 0.2s ease-in-out;
+        }
+        .btn-primary {
+            background-color: #4f46e5; /* Indigo 600 */
+            color: white;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .btn-primary:hover {
+            background-color: #4338ca; /* Indigo 700 */
+            transform: translateY(-2px);
+            box-shadow: 0 6px 8px rgba(0, 0, 0, 0.15);
+        }
+        .btn-secondary {
+            background-color: #6b7280; /* Gray 500 */
+            color: white;
+        }
+        .btn-secondary:hover {
+            background-color: #4b5563; /* Gray 600 */
+        }
+        /* Input styling */
+        input[type="text"], input[type="date"], input[type="number"], select {
+            border: 1px solid #d1d5db; /* Gray 300 */
+            border-radius: 6px;
+            padding: 8px 12px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        input[type="checkbox"] {
+            width: auto;
+            height: auto;
+            margin-right: 8px;
+        }
+        /* Modal styling */
+        .modal {
+            display: none; /* Hidden by default */
+            position: fixed; /* Stay in place */
+            z-index: 1000; /* Sit on top */
+            left: 0;
+            top: 0;
+            width: 100%; /* Full width */
+            height: 100%; /* Full height */
+            overflow: auto; /* Enable scroll if needed */
+            background-color: rgba(0,0,0,0.4); /* Black w/ opacity */
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%; /* Could be more responsive */
+            max-width: 500px;
+            border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+            position: relative;
+        }
+        .close-button {
+            color: #aaa;
+            float: left; /* Aligns to the left in RTL */
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .close-button:hover,
+        .close-button:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        /* Loading spinner */
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #4f46e5;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        /* Print specific styles */
+        @media print {
+            body > *:not(.print-area) {
+                display: none;
+            }
+            .print-area {
+                display: block !important;
+                width: 100%;
+                margin: 0;
+                padding: 0;
+                box-shadow: none;
+                background-color: white;
+            }
+            .print-area h2, .print-area p {
+                text-align: center;
+            }
+            .print-area table {
+                width: 100%;
+                border-collapse: collapse;
+            }
+            .print-area th, .print-area td {
+                border: 1px solid #ccc;
+                padding: 8px;
+                text-align: right;
+            }
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="max-w-7xl mx-auto bg-white rounded-xl shadow-lg p-6 md:p-10">
+        <h1 class="text-3xl md:text-4xl font-extrabold text-gray-900 mb-8 text-center">نظام تتبع صيانة السيارات</h1>
+        <div id="userIdDisplay" class="text-sm text-gray-500 mb-4 text-center">جاري التحميل...</div>
+        <div id="loadingSpinner" class="flex justify-center items-center h-24">
+            <div class="spinner"></div>
+        </div>
+        <div id="errorMessage" class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
+            <strong class="font-bold">خطأ!</strong>
+            <span class="block sm:inline" id="customAlertMessage"></span>
+        </div>
+
+        <!-- Tabs for different maintenance types -->
+        <div class="flex flex-wrap justify-center mb-8 gap-2">
+            <button class="tab-button active px-6 py-3 rounded-lg text-lg font-semibold transition duration-300 ease-in-out" onclick="showTab('daily', event)" data-tab-id="daily">الصيانة اليومية</button>
+            <button class="tab-button px-6 py-3 rounded-lg text-lg font-semibold transition duration-300 ease-in-out" onclick="showTab('weekly', event)" data-tab-id="weekly">الصيانة الأسبوعية</button>
+            <button class="tab-button px-6 py-3 rounded-lg text-lg font-semibold transition duration-300 ease-in-out" onclick="showTab('scheduled', event)" data-tab-id="scheduled">الصيانة الدورية</button>
+            <button class="tab-button px-6 py-3 rounded-lg text-lg font-semibold transition duration-300 ease-in-out" onclick="showTab('emergency', event)" data-tab-id="emergency">الصيانة الطارئة</button>
+            <button class="tab-button px-6 py-3 rounded-lg text-lg font-semibold transition duration-300 ease-in-out" onclick="showTab('annual', event)" data-tab-id="annual">التقرير السنوي</button>
+            <button class="tab-button px-6 py-3 rounded-lg text-lg font-semibold transition duration-300 ease-in-out" onclick="showTab('distribution', event)" data-tab-id="distribution">توزيع السيارات</button>
+        </div>
+
+        <!-- Daily Maintenance Tab Content -->
+        <div id="daily" class="tab-content print-area">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6">جدول تتبع الصيانة اليومية</h2>
+            <p class="text-gray-600 mb-4">يُعبأ هذا الجدول من قبل السائقين لتسجيل الفحوصات اليومية قبل وبعد كل استخدام.</p>
+            <div class="overflow-x-auto rounded-lg shadow-md">
+                <table class="min-w-full bg-white rounded-lg">
+                    <thead>
+                        <tr>
+                            <th>رقم السيارة</th>
+                            <th>التاريخ</th>
+                            <th>فحص الزيت</th>
+                            <th>ضغط الإطارات</th>
+                            <th>الإضاءة</th>
+                            <th>الفرامل</th>
+                            <th>سوائل التبريد</th>
+                            <th>نظافة السيارة</th>
+                            <th>ملاحظات</th>
+                            <th>توقيع السائق</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dailyMaintenanceTableBody">
+                        <!-- Data will be loaded from Firestore -->
+                    </tbody>
+                </table>
+            </div>
+            <div class="flex justify-start gap-4 mt-6">
+                <button class="btn btn-primary" onclick="openDailyModal()">إضافة سجل يومي جديد</button>
+                <button class="btn btn-secondary" onclick="printReport('daily')">طباعة التقرير</button>
+            </div>
+        </div>
+
+        <!-- Weekly Maintenance Tab Content -->
+        <div id="weekly" class="tab-content hidden print-area">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6">جدول تتبع الصيانة الأسبوعية</h2>
+            <p class="text-gray-600 mb-4">يستخدم هذا الجدول لمتابعة المهام الأسبوعية التي يقوم بها فريق الصيانة الداخلية.</p>
+            <div class="overflow-x-auto rounded-lg shadow-md">
+                <table class="min-w-full bg-white rounded-lg">
+                    <thead>
+                        <tr>
+                            <th>رقم السيارة</th>
+                            <th>الأسبوع</th>
+                            <th>تاريخ الفحص</th>
+                            <th>فحص البطارية</th>
+                            <th>حزام المحرك</th>
+                            <th>نظام التعليق</th>
+                            <th>تنظيف الفلاتر الداخلية</th>
+                            <th>ملاحظات</th>
+                            <th>اسم فني الصيانة</th>
+                        </tr>
+                    </thead>
+                    <tbody id="weeklyMaintenanceTableBody">
+                        <!-- Data will be loaded from Firestore -->
+                    </tbody>
+                </table>
+            </div>
+            <div class="flex justify-start gap-4 mt-6">
+                <button class="btn btn-primary" onclick="openWeeklyModal()">إضافة سجل أسبوعي جديد</button>
+                <button class="btn btn-secondary" onclick="printReport('weekly')">طباعة التقرير</button>
+            </div>
+        </div>
+
+        <!-- Scheduled Maintenance Tab Content -->
+        <div id="scheduled" class="tab-content hidden print-area">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6">جدول تتبع الصيانة الدورية (شهرية/ربع سنوية/سنوية)</h2>
+            <p class="text-gray-600 mb-4">هذا الجدول شامل لمتابعة الصيانة الدورية المجدولة بناءً على المدة أو المسافة المقطوعة.</p>
+            <div class="overflow-x-auto rounded-lg shadow-md">
+                <table class="min-w-full bg-white rounded-lg">
+                    <thead>
+                        <tr>
+                            <th>رقم السيارة</th>
+                            <th>نوع الصيانة</th>
+                            <th>تاريخ آخر صيانة</th>
+                            <th>المسافة المقطوعة (كم)</th>
+                            <th>المهام المنجزة</th>
+                            <th>الموعد القادم (تاريخ)</th>
+                            <th>الموعد القادم (كم)</th>
+                            <th>الورشة المسؤولة</th>
+                            <th>ملاحظات</th>
+                        </tr>
+                    </thead>
+                    <tbody id="scheduledMaintenanceTableBody">
+                        <!-- Data will be loaded from Firestore -->
+                    </tbody>
+                </table>
+            </div>
+            <div class="flex justify-start gap-4 mt-6">
+                <button class="btn btn-primary" onclick="openScheduledModal()">إضافة سجل صيانة دورية جديد</button>
+                <button class="btn btn-secondary" onclick="printReport('scheduled')">طباعة التقرير</button>
+            </div>
+        </div>
+
+        <!-- Emergency Maintenance Tab Content -->
+        <div id="emergency" class="tab-content hidden print-area">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6">جدول تتبع الصيانة الطارئة</h2>
+            <p class="text-gray-600 mb-4">يستخدم هذا الجدول لتسجيل تفاصيل الأعطال المفاجئة وعمليات الإصلاح الطارئة.</p>
+            <div class="overflow-x-auto rounded-lg shadow-md">
+                <table class="min-w-full bg-white rounded-lg">
+                    <thead>
+                        <tr>
+                            <th>رقم الطلب</th>
+                            <th>رقم السيارة</th>
+                            <th>التاريخ</th>
+                            <th>وصف العطل</th>
+                            <th>الأولوية</th>
+                            <th>الحالة</th>
+                            <th>التكلفة الفعلية (ريال)</th>
+                            <th>الورشة المسؤولة</th>
+                            <th>تاريخ الانتهاء</th>
+                            <th>ملاحظات</th>
+                        </tr>
+                    </thead>
+                    <tbody id="emergencyMaintenanceTableBody">
+                        <!-- Data will be loaded from Firestore -->
+                    </tbody>
+                </table>
+            </div>
+            <div class="flex justify-start gap-4 mt-6">
+                <button class="btn btn-primary" onclick="openEmergencyModal()">إضافة طلب إصلاح طارئ جديد</button>
+                <button class="btn btn-secondary" onclick="printReport('emergency')">طباعة التقرير</button>
+            </div>
+        </div>
+
+        <!-- Annual Maintenance Report Tab Content -->
+        <div id="annual" class="tab-content hidden print-area">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6">تقرير الصيانة السنوي الشامل</h2>
+            <p class="text-gray-600 mb-4">يوفر هذا التقرير نظرة عامة سنوية على أداء كل سيارة وتكاليف صيانتها.</p>
+            <div class="overflow-x-auto rounded-lg shadow-md">
+                <table class="min-w-full bg-white rounded-lg">
+                    <thead>
+                        <tr>
+                            <th>رقم السيارة</th>
+                            <th>المسافة السنوية (كم)</th>
+                            <th>عدد مرات الصيانة الدورية</th>
+                            <th>عدد مرات الصيانة الطارئة</th>
+                            <th>التكاليف الإجمالية (ريال)</th>
+                            <th>الأعطال المتكررة</th>
+                            <th>تقييم حالة السيارة</th>
+                            <th>ملاحظات وتوصيات</th>
+                        </tr>
+                    </thead>
+                    <tbody id="annualReportTableBody">
+                        <!-- Data will be loaded from Firestore -->
+                    </tbody>
+                </table>
+            </div>
+            <div class="flex justify-start gap-4 mt-6">
+                <button class="btn btn-primary" onclick="openAnnualModal()">إضافة تقرير سنوي جديد</button>
+                <button class="btn btn-secondary" onclick="printReport('annual')">طباعة التقرير</button>
+            </div>
+        </div>
+
+        <!-- Car Distribution Tab Content -->
+        <div id="distribution" class="tab-content hidden print-area">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6">جدول التوزيع والتناوب لمجموعات السيارات</h2>
+            <p class="text-gray-600 mb-4">يساعد هذا الجدول في توزيع الحمل على فريق الصيانة والورش الخارجية.</p>
+            <div class="overflow-x-auto rounded-lg shadow-md">
+                <table class="min-w-full bg-white rounded-lg">
+                    <thead>
+                        <tr>
+                            <th>رقم المجموعة</th>
+                            <th>السيارات المشمولة</th>
+                            <th>أيام الصيانة المخصصة</th>
+                            <th>تاريخ الصيانة الدورية القادمة</th>
+                        </tr>
+                    </thead>
+                    <tbody id="distributionTableBody">
+                        <!-- Data will be loaded from Firestore -->
+                    </tbody>
+                </table>
+            </div>
+            <div class="flex justify-start gap-4 mt-6">
+                <button class="btn btn-primary" onclick="openDistributionModal()">إضافة مجموعة توزيع جديدة</button>
+                <button class="btn btn-secondary" onclick="printReport('distribution')">طباعة التقرير</button>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Modals for adding new entries -->
+
+    <!-- Daily Maintenance Modal -->
+    <div id="dailyModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeDailyModal()">&times;</span>
+            <h3 class="text-xl font-bold mb-4">إضافة سجل صيانة يومي</h3>
+            <div class="space-y-4">
+                <div>
+                    <label for="dailyCarNumber" class="block text-sm font-medium text-gray-700">رقم السيارة:</label>
+                    <input type="text" id="dailyCarNumber" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="dailyDate" class="block text-sm font-medium text-gray-700">التاريخ:</label>
+                    <input type="date" id="dailyDate" class="mt-1 block w-full">
+                </div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="dailyOilCheck" class="h-4 w-4 text-indigo-600 border-gray-300 rounded">
+                    <label for="dailyOilCheck" class="ml-2 block text-sm text-gray-900">فحص الزيت</label>
+                </div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="dailyTirePressure" class="h-4 w-4 text-indigo-600 border-gray-300 rounded">
+                    <label for="dailyTirePressure" class="ml-2 block text-sm text-gray-900">ضغط الإطارات</label>
+                </div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="dailyLights" class="h-4 w-4 text-indigo-600 border-gray-300 rounded">
+                    <label for="dailyLights" class="ml-2 block text-sm text-gray-900">الإضاءة</label>
+                </div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="dailyBrakes" class="h-4 w-4 text-indigo-600 border-gray-300 rounded">
+                    <label for="dailyBrakes" class="ml-2 block text-sm text-gray-900">الفرامل</label>
+                </div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="dailyCoolant" class="h-4 w-4 text-indigo-600 border-gray-300 rounded">
+                    <label for="dailyCoolant" class="ml-2 block text-sm text-gray-900">سوائل التبريد</label>
+                </div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="dailyCleanliness" class="h-4 w-4 text-indigo-600 border-gray-300 rounded">
+                    <label for="dailyCleanliness" class="ml-2 block text-sm text-gray-900">نظافة السيارة</label>
+                </div>
+                <div>
+                    <label for="dailyNotes" class="block text-sm font-medium text-gray-700">ملاحظات:</label>
+                    <input type="text" id="dailyNotes" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="dailyDriverSignature" class="block text-sm font-medium text-gray-700">توقيع السائق:</label>
+                    <input type="text" id="dailyDriverSignature" class="mt-1 block w-full">
+                </div>
+                <button class="btn btn-primary w-full" onclick="addDailyEntry()">إضافة</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Weekly Maintenance Modal -->
+    <div id="weeklyModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeWeeklyModal()">&times;</span>
+            <h3 class="text-xl font-bold mb-4">إضافة سجل صيانة أسبوعي</h3>
+            <div class="space-y-4">
+                <div>
+                    <label for="weeklyCarNumber" class="block text-sm font-medium text-gray-700">رقم السيارة:</label>
+                    <input type="text" id="weeklyCarNumber" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="weeklyWeek" class="block text-sm font-medium text-gray-700">الأسبوع:</label>
+                    <input type="text" id="weeklyWeek" class="mt-1 block w-full" placeholder="مثال: الأسبوع 1">
+                </div>
+                <div>
+                    <label for="weeklyDate" class="block text-sm font-medium text-gray-700">تاريخ الفحص:</label>
+                    <input type="date" id="weeklyDate" class="mt-1 block w-full">
+                </div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="weeklyBatteryCheck" class="h-4 w-4 text-indigo-600 border-gray-300 rounded">
+                    <label for="weeklyBatteryCheck" class="ml-2 block text-sm text-gray-900">فحص البطارية</label>
+                </div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="weeklyEngineBelt" class="h-4 w-4 text-indigo-600 border-gray-300 rounded">
+                    <label for="weeklyEngineBelt" class="ml-2 block text-sm text-gray-900">حزام المحرك</label>
+                </div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="weeklySuspension" class="h-4 w-4 text-indigo-600 border-gray-300 rounded">
+                    <label for="weeklySuspension" class="ml-2 block text-sm text-gray-900">نظام التعليق</label>
+                </div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="weeklyFilters" class="h-4 w-4 text-indigo-600 border-gray-300 rounded">
+                    <label for="weeklyFilters" class="ml-2 block text-sm text-gray-900">تنظيف الفلاتر الداخلية</label>
+                </div>
+                <div>
+                    <label for="weeklyNotes" class="block text-sm font-medium text-gray-700">ملاحظات:</label>
+                    <input type="text" id="weeklyNotes" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="weeklyTechnicianName" class="block text-sm font-medium text-gray-700">اسم فني الصيانة:</label>
+                    <input type="text" id="weeklyTechnicianName" class="mt-1 block w-full">
+                </div>
+                <button class="btn btn-primary w-full" onclick="addWeeklyEntry()">إضافة</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scheduled Maintenance Modal -->
+    <div id="scheduledModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeScheduledModal()">&times;</span>
+            <h3 class="text-xl font-bold mb-4">إضافة سجل صيانة دورية</h3>
+            <div class="space-y-4">
+                <div>
+                    <label for="scheduledCarNumber" class="block text-sm font-medium text-gray-700">رقم السيارة:</label>
+                    <input type="text" id="scheduledCarNumber" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="scheduledType" class="block text-sm font-medium text-gray-700">نوع الصيانة:</label>
+                    <select id="scheduledType" class="mt-1 block w-full">
+                        <option value="شهرية">شهرية</option>
+                        <option value="ربع سنوية">ربع سنوية</option>
+                        <option value="سنوية">سنوية</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="scheduledLastDate" class="block text-sm font-medium text-gray-700">تاريخ آخر صيانة:</label>
+                    <input type="date" id="scheduledLastDate" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="scheduledMileage" class="block text-sm font-medium text-gray-700">المسافة المقطوعة (كم) عند الصيانة:</label>
+                    <input type="number" id="scheduledMileage" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="scheduledTasks" class="block text-sm font-medium text-gray-700">المهام المنجزة:</label>
+                    <input type="text" id="scheduledTasks" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="scheduledNextDate" class="block text-sm font-medium text-gray-700">الموعد القادم (تاريخ):</label>
+                    <input type="date" id="scheduledNextDate" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="scheduledNextMileage" class="block text-sm font-medium text-gray-700">الموعد القادم (كم):</label>
+                    <input type="number" id="scheduledNextMileage" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="scheduledWorkshop" class="block text-sm font-medium text-gray-700">الورشة المسؤولة:</label>
+                    <select id="scheduledWorkshop" class="mt-1 block w-full">
+                        <option value="داخلية">داخلية</option>
+                        <option value="خارجية">خارجية</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="scheduledNotes" class="block text-sm font-medium text-gray-700">ملاحظات:</label>
+                    <input type="text" id="scheduledNotes" class="mt-1 block w-full">
+                </div>
+                <button class="btn btn-primary w-full" onclick="addScheduledEntry()">إضافة</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Emergency Maintenance Modal -->
+    <div id="emergencyModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeEmergencyModal()">&times;</span>
+            <h3 class="text-xl font-bold mb-4">إضافة طلب إصلاح طارئ</h3>
+            <div class="space-y-4">
+                <div>
+                    <label for="emergencyRequestId" class="block text-sm font-medium text-gray-700">رقم الطلب:</label>
+                    <input type="text" id="emergencyRequestId" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="emergencyCarNumber" class="block text-sm font-medium text-gray-700">رقم السيارة:</label>
+                    <input type="text" id="emergencyCarNumber" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="emergencyDate" class="block text-sm font-medium text-gray-700">التاريخ:</label>
+                    <input type="date" id="emergencyDate" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="emergencyDescription" class="block text-sm font-medium text-gray-700">وصف العطل:</label>
+                    <input type="text" id="emergencyDescription" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="emergencyPriority" class="block text-sm font-medium text-gray-700">الأولوية:</label>
+                    <select id="emergencyPriority" class="mt-1 block w-full">
+                        <option value="عاجل">عاجل</option>
+                        <option value="متوسط">متوسط</option>
+                        <option value="منخفض">منخفض</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="emergencyStatus" class="block text-sm font-medium text-gray-700">الحالة:</label>
+                    <select id="emergencyStatus" class="mt-1 block w-full">
+                        <option value="قيد الإصلاح">قيد الإصلاح</option>
+                        <option value="تم الإصلاح">تم الإصلاح</option>
+                        <option value="معلق">معلق</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="emergencyCost" class="block text-sm font-medium text-gray-700">التكلفة الفعلية (ريال):</label>
+                    <input type="number" id="emergencyCost" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="emergencyWorkshop" class="block text-sm font-medium text-gray-700">الورشة المسؤولة:</label>
+                    <input type="text" id="emergencyWorkshop" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="emergencyCompletionDate" class="block text-sm font-medium text-gray-700">تاريخ الانتهاء:</label>
+                    <input type="date" id="emergencyCompletionDate" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="emergencyNotes" class="block text-sm font-medium text-gray-700">ملاحظات:</label>
+                    <input type="text" id="emergencyNotes" class="mt-1 block w-full">
+                </div>
+                <button class="btn btn-primary w-full" onclick="addEmergencyEntry()">إضافة</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Annual Report Modal -->
+    <div id="annualModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeAnnualModal()">&times;</span>
+            <h3 class="text-xl font-bold mb-4">إضافة تقرير سنوي</h3>
+            <div class="space-y-4">
+                <div>
+                    <label for="annualCarNumber" class="block text-sm font-medium text-gray-700">رقم السيارة:</label>
+                    <input type="text" id="annualCarNumber" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="annualMileage" class="block text-sm font-medium text-gray-700">المسافة السنوية (كم):</label>
+                    <input type="number" id="annualMileage" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="annualScheduledCount" class="block text-sm font-medium text-gray-700">عدد مرات الصيانة الدورية:</label>
+                    <input type="number" id="annualScheduledCount" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="annualEmergencyCount" class="block text-sm font-medium text-gray-700">عدد مرات الصيانة الطارئة:</label>
+                    <input type="number" id="annualEmergencyCount" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="annualTotalCost" class="block text-sm font-medium text-gray-700">التكاليف الإجمالية (ريال):</label>
+                    <input type="number" id="annualTotalCost" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="annualRecurringFaults" class="block text-sm font-medium text-gray-700">الأعطال المتكررة:</label>
+                    <input type="text" id="annualRecurringFaults" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="annualCarStatus" class="block text-sm font-medium text-gray-700">تقييم حالة السيارة:</label>
+                    <input type="text" id="annualCarStatus" class="mt-1 block w-full" placeholder="مثال: جيدة (⭐️⭐️⭐️⭐️)">
+                </div>
+                <div>
+                    <label for="annualNotesRecommendations" class="block text-sm font-medium text-gray-700">ملاحظات وتوصيات:</label>
+                    <input type="text" id="annualNotesRecommendations" class="mt-1 block w-full">
+                </div>
+                <button class="btn btn-primary w-full" onclick="addAnnualEntry()">إضافة</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Distribution Modal -->
+    <div id="distributionModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeDistributionModal()">&times;</span>
+            <h3 class="text-xl font-bold mb-4">إضافة مجموعة توزيع جديدة</h3>
+            <div class="space-y-4">
+                <div>
+                    <label for="distributionGroupNumber" class="block text-sm font-medium text-gray-700">رقم المجموعة:</label>
+                    <input type="number" id="distributionGroupNumber" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="distributionCarsIncluded" class="block text-sm font-medium text-gray-700">السيارات المشمولة (مثال: د هـ س 2230 - 2234):</label>
+                    <input type="text" id="distributionCarsIncluded" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="distributionMaintenanceDays" class="block text-sm font-medium text-gray-700">أيام الصيانة المخصصة:</label>
+                    <input type="text" id="distributionMaintenanceDays" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="distributionNextScheduledDate" class="block text-sm font-medium text-gray-700">تاريخ الصيانة الدورية القادمة:</label>
+                    <input type="date" id="distributionNextScheduledDate" class="mt-1 block w-full">
+                </div>
+                <button class="btn btn-primary w-full" onclick="addDistributionEntry()">إضافة</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Alert Dialog -->
+    <div id="customAlertDialog" class="modal">
+        <div class="modal-content">
+            <h3 class="text-xl font-bold mb-4">تنبيه</h3>
+            <p id="customAlertMessage" class="mb-4"></p>
+            <button class="btn btn-primary w-full" onclick="closeCustomAlert()">موافق</button>
+        </div>
+    </div>
+
+    <script type="module">
+        // Import Firebase functions from global scope (set by the first script tag)
+        const db = window.db;
+        const addDoc = window.addDoc;
+        const collection = window.collection;
+        const getCollectionPath = window.getCollectionPath;
+        const isAuthReady = () => window.isAuthReady; // Helper to check auth status
+        const customAlert = window.alert; // Use the custom alert
+
+        // Function to show/hide tabs
+        function showTab(tabId, event) {
+            // Get all tab content elements
+            const tabContents = document.querySelectorAll('.tab-content');
+            // Hide all tab contents
+            tabContents.forEach(content => {
+                content.classList.add('hidden');
+            });
+
+            // Get all tab buttons
+            const tabButtons = document.querySelectorAll('.tab-button');
+            // Remove 'active' class from all buttons
+            tabButtons.forEach(button => {
+                button.classList.remove('active');
+            });
+
+            // Show the selected tab content
+            document.getElementById(tabId).classList.remove('hidden');
+
+            // Determine which button to activate
+            let buttonToActivate;
+            if (event && event.currentTarget) {
+                // If called from a click event, use the clicked button
+                buttonToActivate = event.currentTarget;
+            } else {
+                // If called programmatically (e.g., on DOMContentLoaded), find the button by data-tab-id
+                buttonToActivate = document.querySelector(`.tab-button[data-tab-id="${tabId}"]`);
+            }
+
+            // Add 'active' class to the determined button
+            if (buttonToActivate) {
+                buttonToActivate.classList.add('active');
+            }
+        }
+        window.showTab = showTab; // Expose to global scope for onclick
+
+        // Functions to open and close modals
+        function openDailyModal() { document.getElementById('dailyModal').style.display = 'flex'; }
+        function closeDailyModal() { document.getElementById('dailyModal').style.display = 'none'; }
+
+        function openWeeklyModal() { document.getElementById('weeklyModal').style.display = 'flex'; }
+        function closeWeeklyModal() { document.getElementById('weeklyModal').style.display = 'none'; }
+
+        function openScheduledModal() { document.getElementById('scheduledModal').style.display = 'flex'; }
+        function closeScheduledModal() { document.getElementById('scheduledModal').style.display = 'none'; }
+
+        function openEmergencyModal() { document.getElementById('emergencyModal').style.display = 'flex'; }
+        function closeEmergencyModal() { document.getElementById('emergencyModal').style.display = 'none'; }
+
+        function openAnnualModal() { document.getElementById('annualModal').style.display = 'flex'; }
+        function closeAnnualModal() { document.getElementById('annualModal').style.display = 'none'; }
+
+        function openDistributionModal() { document.getElementById('distributionModal').style.display = 'flex'; }
+        function closeDistributionModal() { document.getElementById('distributionModal').style.display = 'none'; }
+
+        window.openDailyModal = openDailyModal;
+        window.closeDailyModal = closeDailyModal;
+        window.openWeeklyModal = openWeeklyModal;
+        window.closeWeeklyModal = closeWeeklyModal;
+        window.openScheduledModal = openScheduledModal;
+        window.closeScheduledModal = closeScheduledModal;
+        window.openEmergencyModal = openEmergencyModal;
+        window.closeEmergencyModal = closeEmergencyModal;
+        window.openAnnualModal = openAnnualModal;
+        window.closeAnnualModal = closeAnnualModal;
+        window.openDistributionModal = openDistributionModal;
+        window.closeDistributionModal = closeDistributionModal;
+
+        // Function to add a new row to the Daily Maintenance Table
+        async function addDailyEntry() {
+            if (!isAuthReady()) { customAlert("الرجاء الانتظار حتى يتم تحميل التطبيق وتجهيز المصادقة."); return; }
+
+            const carNumber = document.getElementById('dailyCarNumber').value;
+            const date = document.getElementById('dailyDate').value;
+            const oilCheck = document.getElementById('dailyOilCheck').checked;
+            const tirePressure = document.getElementById('dailyTirePressure').checked;
+            const lights = document.getElementById('dailyLights').checked;
+            const brakes = document.getElementById('dailyBrakes').checked;
+            const coolant = document.getElementById('dailyCoolant').checked;
+            const cleanliness = document.getElementById('dailyCleanliness').checked;
+            const notes = document.getElementById('dailyNotes').value;
+            const driverSignature = document.getElementById('dailyDriverSignature').value;
+
+            // Basic validation
+            if (!carNumber || !date || !driverSignature) {
+                customAlert('الرجاء تعبئة جميع الحقول المطلوبة (رقم السيارة، التاريخ، توقيع السائق).');
+                return;
+            }
+
+            try {
+                const collectionRef = collection(db, getCollectionPath('dailyMaintenance'));
+                await addDoc(collectionRef, {
+                    carNumber, date, oilCheck, tirePressure, lights, brakes, coolant, cleanliness, notes, driverSignature,
+                    timestamp: new Date() // Add a timestamp for ordering if needed
+                });
+                customAlert("تمت إضافة سجل الصيانة اليومية بنجاح!");
+                // Clear form fields and close modal
+                document.getElementById('dailyCarNumber').value = '';
+                document.getElementById('dailyDate').value = '';
+                document.getElementById('dailyOilCheck').checked = false;
+                document.getElementById('dailyTirePressure').checked = false;
+                document.getElementById('dailyLights').checked = false;
+                document.getElementById('dailyBrakes').checked = false;
+                document.getElementById('dailyCoolant').checked = false;
+                document.getElementById('dailyCleanliness').checked = false;
+                document.getElementById('dailyNotes').value = '';
+                document.getElementById('dailyDriverSignature').value = '';
+                closeDailyModal();
+            } catch (e) {
+                console.error("Error adding document: ", e);
+                customAlert("حدث خطأ أثناء إضافة السجل: " + e.message);
+            }
+        }
+        window.addDailyEntry = addDailyEntry;
+
+        // Function to add a new row to the Weekly Maintenance Table
+        async function addWeeklyEntry() {
+            if (!isAuthReady()) { customAlert("الرجاء الانتظار حتى يتم تحميل التطبيق وتجهيز المصادقة."); return; }
+
+            const carNumber = document.getElementById('weeklyCarNumber').value;
+            const week = document.getElementById('weeklyWeek').value;
+            const date = document.getElementById('weeklyDate').value;
+            const batteryCheck = document.getElementById('weeklyBatteryCheck').checked;
+            const engineBelt = document.getElementById('weeklyEngineBelt').checked;
+            const suspension = document.getElementById('weeklySuspension').checked;
+            const filters = document.getElementById('weeklyFilters').checked;
+            const notes = document.getElementById('weeklyNotes').value;
+            const technicianName = document.getElementById('weeklyTechnicianName').value;
+
+            // Basic validation
+            if (!carNumber || !week || !date || !technicianName) {
+                customAlert('الرجاء تعبئة جميع الحقول المطلوبة (رقم السيارة، الأسبوع، تاريخ الفحص، اسم فني الصيانة).');
+                return;
+            }
+
+            try {
+                const collectionRef = collection(db, getCollectionPath('weeklyMaintenance'));
+                await addDoc(collectionRef, {
+                    carNumber, week, date, batteryCheck, engineBelt, suspension, filters, notes, technicianName,
+                    timestamp: new Date()
+                });
+                customAlert("تمت إضافة سجل الصيانة الأسبوعية بنجاح!");
+                // Clear form fields and close modal
+                document.getElementById('weeklyCarNumber').value = '';
+                document.getElementById('weeklyWeek').value = '';
+                document.getElementById('weeklyDate').value = '';
+                document.getElementById('weeklyBatteryCheck').checked = false;
+                document.getElementById('weeklyEngineBelt').checked = false;
+                document.getElementById('weeklySuspension').checked = false;
+                document.getElementById('weeklyFilters').checked = false;
+                document.getElementById('weeklyNotes').value = '';
+                document.getElementById('weeklyTechnicianName').value = '';
+                closeWeeklyModal();
+            } catch (e) {
+                console.error("Error adding document: ", e);
+                customAlert("حدث خطأ أثناء إضافة السجل: " + e.message);
+            }
+        }
+        window.addWeeklyEntry = addWeeklyEntry;
+
+        // Function to add a new row to the Scheduled Maintenance Table
+        async function addScheduledEntry() {
+            if (!isAuthReady()) { customAlert("الرجاء الانتظار حتى يتم تحميل التطبيق وتجهيز المصادقة."); return; }
+
+            const carNumber = document.getElementById('scheduledCarNumber').value;
+            const type = document.getElementById('scheduledType').value;
+            const lastDate = document.getElementById('scheduledLastDate').value;
+            const mileage = document.getElementById('scheduledMileage').value;
+            const tasks = document.getElementById('scheduledTasks').value;
+            const nextDate = document.getElementById('scheduledNextDate').value;
+            const nextMileage = document.getElementById('scheduledNextMileage').value;
+            const workshop = document.getElementById('scheduledWorkshop').value;
+            const notes = document.getElementById('scheduledNotes').value;
+
+            // Basic validation
+            if (!carNumber || !type || !lastDate || !mileage || !tasks || !nextDate || !nextMileage || !workshop) {
+                customAlert('الرجاء تعبئة جميع الحقول المطلوبة.');
+                return;
+            }
+
+            try {
+                const collectionRef = collection(db, getCollectionPath('scheduledMaintenance'));
+                await addDoc(collectionRef, {
+                    carNumber, type, lastDate, mileage: parseInt(mileage), tasks, nextDate, nextMileage: parseInt(nextMileage), workshop, notes,
+                    timestamp: new Date()
+                });
+                customAlert("تمت إضافة سجل الصيانة الدورية بنجاح!");
+                // Clear form fields and close modal
+                document.getElementById('scheduledCarNumber').value = '';
+                document.getElementById('scheduledType').value = 'شهرية';
+                document.getElementById('scheduledLastDate').value = '';
+                document.getElementById('scheduledMileage').value = '';
+                document.getElementById('scheduledTasks').value = '';
+                document.getElementById('scheduledNextDate').value = '';
+                document.getElementById('scheduledNextMileage').value = '';
+                document.getElementById('scheduledWorkshop').value = 'داخلية';
+                document.getElementById('scheduledNotes').value = '';
+                closeScheduledModal();
+            } catch (e) {
+                console.error("Error adding document: ", e);
+                customAlert("حدث خطأ أثناء إضافة السجل: " + e.message);
+            }
+        }
+        window.addScheduledEntry = addScheduledEntry;
+
+        // Function to add a new row to the Emergency Maintenance Table
+        async function addEmergencyEntry() {
+            if (!isAuthReady()) { customAlert("الرجاء الانتظار حتى يتم تحميل التطبيق وتجهيز المصادقة."); return; }
+
+            const requestId = document.getElementById('emergencyRequestId').value;
+            const carNumber = document.getElementById('emergencyCarNumber').value;
+            const date = document.getElementById('emergencyDate').value;
+            const description = document.getElementById('emergencyDescription').value;
+            const priority = document.getElementById('emergencyPriority').value;
+            const status = document.getElementById('emergencyStatus').value;
+            const cost = document.getElementById('emergencyCost').value;
+            const workshop = document.getElementById('emergencyWorkshop').value;
+            const completionDate = document.getElementById('emergencyCompletionDate').value;
+            const notes = document.getElementById('emergencyNotes').value;
+
+            // Basic validation
+            if (!requestId || !carNumber || !date || !description || !priority || !status || !cost || !workshop) {
+                customAlert('الرجاء تعبئة جميع الحقول المطلوبة.');
+                return;
+            }
+
+            try {
+                const collectionRef = collection(db, getCollectionPath('emergencyMaintenance'));
+                await addDoc(collectionRef, {
+                    requestId, carNumber, date, description, priority, status, cost: parseInt(cost), workshop, completionDate, notes,
+                    timestamp: new Date()
+                });
+                customAlert("تمت إضافة طلب الإصلاح الطارئ بنجاح!");
+                // Clear form fields and close modal
+                document.getElementById('emergencyRequestId').value = '';
+                document.getElementById('emergencyCarNumber').value = '';
+                document.getElementById('emergencyDate').value = '';
+                document.getElementById('emergencyDescription').value = '';
+                document.getElementById('emergencyPriority').value = 'عاجل';
+                document.getElementById('emergencyStatus').value = 'قيد الإصلاح';
+                document.getElementById('emergencyCost').value = '';
+                document.getElementById('emergencyWorkshop').value = '';
+                document.getElementById('emergencyCompletionDate').value = '';
+                document.getElementById('emergencyNotes').value = '';
+                closeEmergencyModal();
+            } catch (e) {
+                console.error("Error adding document: ", e);
+                customAlert("حدث خطأ أثناء إضافة السجل: " + e.message);
+            }
+        }
+        window.addEmergencyEntry = addEmergencyEntry;
+
+        // Function to add a new row to the Annual Report Table
+        async function addAnnualEntry() {
+            if (!isAuthReady()) { customAlert("الرجاء الانتظار حتى يتم تحميل التطبيق وتجهيز المصادقة."); return; }
+
+            const carNumber = document.getElementById('annualCarNumber').value;
+            const mileage = document.getElementById('annualMileage').value;
+            const scheduledCount = document.getElementById('annualScheduledCount').value;
+            const emergencyCount = document.getElementById('annualEmergencyCount').value;
+            const totalCost = document.getElementById('annualTotalCost').value;
+            const recurringFaults = document.getElementById('annualRecurringFaults').value;
+            const carStatus = document.getElementById('annualCarStatus').value;
+            const notesRecommendations = document.getElementById('annualNotesRecommendations').value;
+
+            // Basic validation
+            if (!carNumber || !mileage || !scheduledCount || !emergencyCount || !totalCost || !carStatus) {
+                customAlert('الرجاء تعبئة جميع الحقول المطلوبة.');
+                return;
+            }
+
+            try {
+                const collectionRef = collection(db, getCollectionPath('annualReports'));
+                await addDoc(collectionRef, {
+                    carNumber, mileage: parseInt(mileage), scheduledCount: parseInt(scheduledCount), emergencyCount: parseInt(emergencyCount), totalCost: parseInt(totalCost), recurringFaults, carStatus, notesRecommendations,
+                    timestamp: new Date()
+                });
+                customAlert("تمت إضافة التقرير السنوي بنجاح!");
+                // Clear form fields and close modal
+                document.getElementById('annualCarNumber').value = '';
+                document.getElementById('annualMileage').value = '';
+                document.getElementById('annualScheduledCount').value = '';
+                document.getElementById('annualEmergencyCount').value = '';
+                document.getElementById('annualTotalCost').value = '';
+                document.getElementById('annualRecurringFaults').value = '';
+                document.getElementById('annualCarStatus').value = '';
+                document.getElementById('annualNotesRecommendations').value = '';
+                closeAnnualModal();
+            } catch (e) {
+                console.error("Error adding document: ", e);
+                customAlert("حدث خطأ أثناء إضافة السجل: " + e.message);
+            }
+        }
+        window.addAnnualEntry = addAnnualEntry;
+
+        // Function to add a new row to the Distribution Table
+        async function addDistributionEntry() {
+            if (!isAuthReady()) { customAlert("الرجاء الانتظار حتى يتم تحميل التطبيق وتجهيز المصادقة."); return; }
+
+            const groupNumber = document.getElementById('distributionGroupNumber').value;
+            const carsIncluded = document.getElementById('distributionCarsIncluded').value;
+            const maintenanceDays = document.getElementById('distributionMaintenanceDays').value;
+            const nextScheduledDate = document.getElementById('distributionNextScheduledDate').value;
+
+            // Basic validation
+            if (!groupNumber || !carsIncluded || !maintenanceDays || !nextScheduledDate) {
+                customAlert('الرجاء تعبئة جميع الحقول المطلوبة.');
+                return;
+            }
+
+            try {
+                const collectionRef = collection(db, getCollectionPath('distribution'));
+                await addDoc(collectionRef, {
+                    groupNumber: parseInt(groupNumber), carsIncluded, maintenanceDays, nextScheduledDate,
+                    timestamp: new Date()
+                });
+                customAlert("تمت إضافة مجموعة التوزيع بنجاح!");
+                // Clear form fields and close modal
+                document.getElementById('distributionGroupNumber').value = '';
+                document.getElementById('distributionCarsIncluded').value = '';
+                document.getElementById('distributionMaintenanceDays').value = '';
+                document.getElementById('distributionNextScheduledDate').value = '';
+                closeDistributionModal();
+            } catch (e) {
+                console.error("Error adding document: ", e);
+                customAlert("حدث خطأ أثناء إضافة السجل: " + e.message);
+            }
+        }
+        window.addDistributionEntry = addDistributionEntry;
+
+        // Function to print the content of a specific tab
+        function printReport(tabId) {
+            const tabContent = document.getElementById(tabId);
+            const originalContents = document.body.innerHTML;
+            const printContents = tabContent.outerHTML;
+
+            document.body.innerHTML = printContents;
+            window.print();
+            document.body.innerHTML = originalContents; // Restore original content
+            location.reload(); // Reload to re-initialize scripts and listeners
+        }
+        window.printReport = printReport;
+
+        // Initial tab display (moved to DOMContentLoaded in the Firebase script)
+        // document.addEventListener('DOMContentLoaded', () => {
+        //     showTab('daily'); // Show daily tab by default
+        // });
+
+        // Close modal when clicking outside of it
+        window.onclick = function(event) {
+            const modals = document.querySelectorAll('.modal');
+            modals.forEach(modal => {
+                if (event.target == modal) {
+                    modal.style.display = "none";
+                }
+            });
+        }
+    </script>
+</body>
+</html>
