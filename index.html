@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>تتبع صيانة السيارات</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for Inter font and general body styling */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* Light gray background */
+            direction: rtl; /* Right-to-left for Arabic */
+            text-align: right; /* Align text to the right */
+        }
+        /* Custom scrollbar for better aesthetics */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        /* Style for active tab */
+        .tab-button.active {
+            background-color: #4f46e5; /* Indigo 600 */
+            color: white;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        /* Table header styling */
+        th {
+            background-color: #e0e7ff; /* Indigo 100 */
+            color: #3730a3; /* Indigo 900 */
+            padding: 12px 16px;
+            text-align: right;
+            border-bottom: 2px solid #c7d2fe; /* Indigo 200 */
+        }
+        /* Table row styling */
+        td {
+            padding: 10px 16px;
+            border-bottom: 1px solid #e5e7eb; /* Gray 200 */
+        }
+        /* Alternate row background for readability */
+        tr:nth-child(even) {
+            background-color: #f9fafb; /* Gray 50 */
+        }
+        /* Hover effect for rows */
+        tr:hover {
+            background-color: #eff6ff; /* Blue 50 */
+        }
+        /* Button styling */
+        .btn {
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: all 0.2s ease-in-out;
+        }
+        .btn-primary {
+            background-color: #4f46e5; /* Indigo 600 */
+            color: white;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .btn-primary:hover {
+            background-color: #4338ca; /* Indigo 700 */
+            transform: translateY(-2px);
+            box-shadow: 0 6px 8px rgba(0, 0, 0, 0.15);
+        }
+        .btn-secondary {
+            background-color: #6b7280; /* Gray 500 */
+            color: white;
+        }
+        .btn-secondary:hover {
+            background-color: #4b5563; /* Gray 600 */
+        }
+        /* Input styling */
+        input[type="text"], input[type="date"], input[type="number"], select {
+            border: 1px solid #d1d5db; /* Gray 300 */
+            border-radius: 6px;
+            padding: 8px 12px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        input[type="checkbox"] {
+            width: auto;
+            height: auto;
+            margin-right: 8px;
+        }
+        /* Modal styling */
+        .modal {
+            display: none; /* Hidden by default */
+            position: fixed; /* Stay in place */
+            z-index: 1000; /* Sit on top */
+            left: 0;
+            top: 0;
+            width: 100%; /* Full width */
+            height: 100%; /* Full height */
+            overflow: auto; /* Enable scroll if needed */
+            background-color: rgba(0,0,0,0.4); /* Black w/ opacity */
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%; /* Could be more responsive */
+            max-width: 500px;
+            border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+            position: relative;
+        }
+        .close-button {
+            color: #aaa;
+            float: left; /* Aligns to the left in RTL */
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .close-button:hover,
+        .close-button:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="max-w-7xl mx-auto bg-white rounded-xl shadow-lg p-6 md:p-10">
+        <h1 class="text-3xl md:text-4xl font-extrabold text-gray-900 mb-8 text-center">نظام تتبع صيانة السيارات</h1>
+
+        <!-- Tabs for different maintenance types -->
+        <div class="flex flex-wrap justify-center mb-8 gap-2">
+            <button class="tab-button active px-6 py-3 rounded-lg text-lg font-semibold transition duration-300 ease-in-out" onclick="showTab('daily', event)" data-tab-id="daily">الصيانة اليومية</button>
+            <button class="tab-button px-6 py-3 rounded-lg text-lg font-semibold transition duration-300 ease-in-out" onclick="showTab('weekly', event)" data-tab-id="weekly">الصيانة الأسبوعية</button>
+            <button class="tab-button px-6 py-3 rounded-lg text-lg font-semibold transition duration-300 ease-in-out" onclick="showTab('scheduled', event)" data-tab-id="scheduled">الصيانة الدورية</button>
+            <button class="tab-button px-6 py-3 rounded-lg text-lg font-semibold transition duration-300 ease-in-out" onclick="showTab('emergency', event)" data-tab-id="emergency">الصيانة الطارئة</button>
+            <button class="tab-button px-6 py-3 rounded-lg text-lg font-semibold transition duration-300 ease-in-out" onclick="showTab('annual', event)" data-tab-id="annual">التقرير السنوي</button>
+            <button class="tab-button px-6 py-3 rounded-lg text-lg font-semibold transition duration-300 ease-in-out" onclick="showTab('distribution', event)" data-tab-id="distribution">توزيع السيارات</button>
+        </div>
+
+        <!-- Daily Maintenance Tab Content -->
+        <div id="daily" class="tab-content">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6">جدول تتبع الصيانة اليومية</h2>
+            <p class="text-gray-600 mb-4">يُعبأ هذا الجدول من قبل السائقين لتسجيل الفحوصات اليومية قبل وبعد كل استخدام.</p>
+            <div class="overflow-x-auto rounded-lg shadow-md">
+                <table class="min-w-full bg-white rounded-lg">
+                    <thead>
+                        <tr>
+                            <th>رقم السيارة</th>
+                            <th>التاريخ</th>
+                            <th>فحص الزيت</th>
+                            <th>ضغط الإطارات</th>
+                            <th>الإضاءة</th>
+                            <th>الفرامل</th>
+                            <th>سوائل التبريد</th>
+                            <th>نظافة السيارة</th>
+                            <th>ملاحظات</th>
+                            <th>توقيع السائق</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dailyMaintenanceTableBody">
+                        <!-- Example Row -->
+                        <tr>
+                            <td>د هـ س 2230</td>
+                            <td>2025-02-10</td>
+                            <td><input type="checkbox" checked disabled></td>
+                            <td><input type="checkbox" checked disabled></td>
+                            <td><input type="checkbox" disabled></td>
+                            <td><input type="checkbox" checked disabled></td>
+                            <td><input type="checkbox" checked disabled></td>
+                            <td><input type="checkbox" checked disabled></td>
+                            <td>مصباح مكسور</td>
+                            <td>محمد السفياني</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <button class="btn btn-primary mt-6" onclick="openDailyModal()">إضافة سجل يومي جديد</button>
+        </div>
+
+        <!-- Weekly Maintenance Tab Content -->
+        <div id="weekly" class="tab-content hidden">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6">جدول تتبع الصيانة الأسبوعية</h2>
+            <p class="text-gray-600 mb-4">يستخدم هذا الجدول لمتابعة المهام الأسبوعية التي يقوم بها فريق الصيانة الداخلية.</p>
+            <div class="overflow-x-auto rounded-lg shadow-md">
+                <table class="min-w-full bg-white rounded-lg">
+                    <thead>
+                        <tr>
+                            <th>رقم السيارة</th>
+                            <th>الأسبوع</th>
+                            <th>تاريخ الفحص</th>
+                            <th>فحص البطارية</th>
+                            <th>حزام المحرك</th>
+                            <th>نظام التعليق</th>
+                            <th>تنظيف الفلاتر الداخلية</th>
+                            <th>ملاحظات</th>
+                            <th>اسم فني الصيانة</th>
+                        </tr>
+                    </thead>
+                    <tbody id="weeklyMaintenanceTableBody">
+                        <!-- Example Row -->
+                        <tr>
+                            <td>د هـ س 2230</td>
+                            <td>الأسبوع 1</td>
+                            <td>2025-02-17</td>
+                            <td><input type="checkbox" checked disabled></td>
+                            <td><input type="checkbox" checked disabled></td>
+                            <td><input type="checkbox" checked disabled></td>
+                            <td><input type="checkbox" checked disabled></td>
+                            <td>لا يوجد</td>
+                            <td>فني 1</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <button class="btn btn-primary mt-6" onclick="openWeeklyModal()">إضافة سجل أسبوعي جديد</button>
+        </div>
+
+        <!-- Scheduled Maintenance Tab Content -->
+        <div id="scheduled" class="tab-content hidden">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6">جدول تتبع الصيانة الدورية (شهرية/ربع سنوية/سنوية)</h2>
+            <p class="text-gray-600 mb-4">هذا الجدول شامل لمتابعة الصيانة الدورية المجدولة بناءً على المدة أو المسافة المقطوعة.</p>
+            <div class="overflow-x-auto rounded-lg shadow-md">
+                <table class="min-w-full bg-white rounded-lg">
+                    <thead>
+                        <tr>
+                            <th>رقم السيارة</th>
+                            <th>نوع الصيانة</th>
+                            <th>تاريخ آخر صيانة</th>
+                            <th>المسافة المقطوعة (كم)</th>
+                            <th>المهام المنجزة</th>
+                            <th>الموعد القادم (تاريخ)</th>
+                            <th>الموعد القادم (كم)</th>
+                            <th>الورشة المسؤولة</th>
+                            <th>ملاحظات</th>
+                        </tr>
+                    </thead>
+                    <tbody id="scheduledMaintenanceTableBody">
+                        <!-- Example Row -->
+                        <tr>
+                            <td>د هـ س 2230</td>
+                            <td>شهرية</td>
+                            <td>2025-02-15</td>
+                            <td>4800</td>
+                            <td>تغيير زيت وفلاتر</td>
+                            <td>2025-03-15</td>
+                            <td>9800</td>
+                            <td>داخلية</td>
+                            <td>تحتاج فحص فرامل</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <button class="btn btn-primary mt-6" onclick="openScheduledModal()">إضافة سجل صيانة دورية جديد</button>
+        </div>
+
+        <!-- Emergency Maintenance Tab Content -->
+        <div id="emergency" class="tab-content hidden">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6">جدول تتبع الصيانة الطارئة</h2>
+            <p class="text-gray-600 mb-4">يستخدم هذا الجدول لتسجيل تفاصيل الأعطال المفاجئة وعمليات الإصلاح الطارئة.</p>
+            <div class="overflow-x-auto rounded-lg shadow-md">
+                <table class="min-w-full bg-white rounded-lg">
+                    <thead>
+                        <tr>
+                            <th>رقم الطلب</th>
+                            <th>رقم السيارة</th>
+                            <th>التاريخ</th>
+                            <th>وصف العطل</th>
+                            <th>الأولوية</th>
+                            <th>الحالة</th>
+                            <th>التكلفة الفعلية (ريال)</th>
+                            <th>الورشة المسؤولة</th>
+                            <th>تاريخ الانتهاء</th>
+                            <th>ملاحظات</th>
+                        </tr>
+                    </thead>
+                    <tbody id="emergencyMaintenanceTableBody">
+                        <!-- Example Row -->
+                        <tr>
+                            <td>102</td>
+                            <td>د هـ س 2230</td>
+                            <td>2025-02-10</td>
+                            <td>تسرب وقود</td>
+                            <td>عاجل</td>
+                            <td>قيد الإصلاح</td>
+                            <td>800</td>
+                            <td>خارجية</td>
+                            <td>2025-02-12</td>
+                            <td>تم استبدال الخرطوم</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <button class="btn btn-primary mt-6" onclick="openEmergencyModal()">إضافة طلب إصلاح طارئ جديد</button>
+        </div>
+
+        <!-- Annual Maintenance Report Tab Content -->
+        <div id="annual" class="tab-content hidden">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6">تقرير الصيانة السنوي الشامل</h2>
+            <p class="text-gray-600 mb-4">يوفر هذا التقرير نظرة عامة سنوية على أداء كل سيارة وتكاليف صيانتها.</p>
+            <div class="overflow-x-auto rounded-lg shadow-md">
+                <table class="min-w-full bg-white rounded-lg">
+                    <thead>
+                        <tr>
+                            <th>رقم السيارة</th>
+                            <th>المسافة السنوية (كم)</th>
+                            <th>عدد مرات الصيانة الدورية</th>
+                            <th>عدد مرات الصيانة الطارئة</th>
+                            <th>التكاليف الإجمالية (ريال)</th>
+                            <th>الأعطال المتكررة</th>
+                            <th>تقييم حالة السيارة</th>
+                            <th>ملاحظات وتوصيات</th>
+                        </tr>
+                    </thead>
+                    <tbody id="annualReportTableBody">
+                        <!-- Example Row -->
+                        <tr>
+                            <td>د هـ س 2230</td>
+                            <td>28000</td>
+                            <td>6</td>
+                            <td>1</td>
+                            <td>3000</td>
+                            <td>مشاكل في البطارية</td>
+                            <td>جيدة (⭐️⭐️⭐️⭐️)</td>
+                            <td>يوصى بفحص البطارية بشكل دوري</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <button class="btn btn-primary mt-6" onclick="openAnnualModal()">إضافة تقرير سنوي جديد</button>
+        </div>
+
+        <!-- Car Distribution Tab Content -->
+        <div id="distribution" class="tab-content hidden">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6">جدول التوزيع والتناوب لمجموعات السيارات</h2>
+            <p class="text-gray-600 mb-4">يساعد هذا الجدول في توزيع الحمل على فريق الصيانة والورش الخارجية.</p>
+            <div class="overflow-x-auto rounded-lg shadow-md">
+                <table class="min-w-full bg-white rounded-lg">
+                    <thead>
+                        <tr>
+                            <th>رقم المجموعة</th>
+                            <th>السيارات المشمولة</th>
+                            <th>أيام الصيانة المخصصة</th>
+                            <th>تاريخ الصيانة الدورية القادمة</th>
+                        </tr>
+                    </thead>
+                    <tbody id="distributionTableBody">
+                        <!-- Example Row -->
+                        <tr>
+                            <td>1</td>
+                            <td>د هـ س 2230 - 2234</td>
+                            <td>الأحد</td>
+                            <td>2025-08-15</td>
+                        </tr>
+                        <tr>
+                            <td>2</td>
+                            <td>د هـ س 2235 - 2239</td>
+                            <td>الاثنين</td>
+                            <td>2025-08-16</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <button class="btn btn-primary mt-6" onclick="openDistributionModal()">إضافة مجموعة توزيع جديدة</button>
+        </div>
+
+    </div>
+
+    <!-- Modals for adding new entries -->
+
+    <!-- Daily Maintenance Modal -->
+    <div id="dailyModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeDailyModal()">&times;</span>
+            <h3 class="text-xl font-bold mb-4">إضافة سجل صيانة يومي</h3>
+            <div class="space-y-4">
+                <div>
+                    <label for="dailyCarNumber" class="block text-sm font-medium text-gray-700">رقم السيارة:</label>
+                    <input type="text" id="dailyCarNumber" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="dailyDate" class="block text-sm font-medium text-gray-700">التاريخ:</label>
+                    <input type="date" id="dailyDate" class="mt-1 block w-full">
+                </div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="dailyOilCheck" class="h-4 w-4 text-indigo-600 border-gray-300 rounded">
+                    <label for="dailyOilCheck" class="ml-2 block text-sm text-gray-900">فحص الزيت</label>
+                </div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="dailyTirePressure" class="h-4 w-4 text-indigo-600 border-gray-300 rounded">
+                    <label for="dailyTirePressure" class="ml-2 block text-sm text-gray-900">ضغط الإطارات</label>
+                </div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="dailyLights" class="h-4 w-4 text-indigo-600 border-gray-300 rounded">
+                    <label for="dailyLights" class="ml-2 block text-sm text-gray-900">الإضاءة</label>
+                </div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="dailyBrakes" class="h-4 w-4 text-indigo-600 border-gray-300 rounded">
+                    <label for="dailyBrakes" class="ml-2 block text-sm text-gray-900">الفرامل</label>
+                </div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="dailyCoolant" class="h-4 w-4 text-indigo-600 border-gray-300 rounded">
+                    <label for="dailyCoolant" class="ml-2 block text-sm text-gray-900">سوائل التبريد</label>
+                </div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="dailyCleanliness" class="h-4 w-4 text-indigo-600 border-gray-300 rounded">
+                    <label for="dailyCleanliness" class="ml-2 block text-sm text-gray-900">نظافة السيارة</label>
+                </div>
+                <div>
+                    <label for="dailyNotes" class="block text-sm font-medium text-gray-700">ملاحظات:</label>
+                    <input type="text" id="dailyNotes" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="dailyDriverSignature" class="block text-sm font-medium text-gray-700">توقيع السائق:</label>
+                    <input type="text" id="dailyDriverSignature" class="mt-1 block w-full">
+                </div>
+                <button class="btn btn-primary w-full" onclick="addDailyEntry()">إضافة</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Weekly Maintenance Modal -->
+    <div id="weeklyModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeWeeklyModal()">&times;</span>
+            <h3 class="text-xl font-bold mb-4">إضافة سجل صيانة أسبوعي</h3>
+            <div class="space-y-4">
+                <div>
+                    <label for="weeklyCarNumber" class="block text-sm font-medium text-gray-700">رقم السيارة:</label>
+                    <input type="text" id="weeklyCarNumber" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="weeklyWeek" class="block text-sm font-medium text-gray-700">الأسبوع:</label>
+                    <input type="text" id="weeklyWeek" class="mt-1 block w-full" placeholder="مثال: الأسبوع 1">
+                </div>
+                <div>
+                    <label for="weeklyDate" class="block text-sm font-medium text-gray-700">تاريخ الفحص:</label>
+                    <input type="date" id="weeklyDate" class="mt-1 block w-full">
+                </div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="weeklyBatteryCheck" class="h-4 w-4 text-indigo-600 border-gray-300 rounded">
+                    <label for="weeklyBatteryCheck" class="ml-2 block text-sm text-gray-900">فحص البطارية</label>
+                </div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="weeklyEngineBelt" class="h-4 w-4 text-indigo-600 border-gray-300 rounded">
+                    <label for="weeklyEngineBelt" class="ml-2 block text-sm text-gray-900">حزام المحرك</label>
+                </div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="weeklySuspension" class="h-4 w-4 text-indigo-600 border-gray-300 rounded">
+                    <label for="weeklySuspension" class="ml-2 block text-sm text-gray-900">نظام التعليق</label>
+                </div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="weeklyFilters" class="h-4 w-4 text-indigo-600 border-gray-300 rounded">
+                    <label for="weeklyFilters" class="ml-2 block text-sm text-gray-900">تنظيف الفلاتر الداخلية</label>
+                </div>
+                <div>
+                    <label for="weeklyNotes" class="block text-sm font-medium text-gray-700">ملاحظات:</label>
+                    <input type="text" id="weeklyNotes" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="weeklyTechnicianName" class="block text-sm font-medium text-gray-700">اسم فني الصيانة:</label>
+                    <input type="text" id="weeklyTechnicianName" class="mt-1 block w-full">
+                </div>
+                <button class="btn btn-primary w-full" onclick="addWeeklyEntry()">إضافة</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scheduled Maintenance Modal -->
+    <div id="scheduledModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeScheduledModal()">&times;</span>
+            <h3 class="text-xl font-bold mb-4">إضافة سجل صيانة دورية</h3>
+            <div class="space-y-4">
+                <div>
+                    <label for="scheduledCarNumber" class="block text-sm font-medium text-gray-700">رقم السيارة:</label>
+                    <input type="text" id="scheduledCarNumber" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="scheduledType" class="block text-sm font-medium text-gray-700">نوع الصيانة:</label>
+                    <select id="scheduledType" class="mt-1 block w-full">
+                        <option value="شهرية">شهرية</option>
+                        <option value="ربع سنوية">ربع سنوية</option>
+                        <option value="سنوية">سنوية</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="scheduledLastDate" class="block text-sm font-medium text-gray-700">تاريخ آخر صيانة:</label>
+                    <input type="date" id="scheduledLastDate" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="scheduledMileage" class="block text-sm font-medium text-gray-700">المسافة المقطوعة (كم) عند الصيانة:</label>
+                    <input type="number" id="scheduledMileage" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="scheduledTasks" class="block text-sm font-medium text-gray-700">المهام المنجزة:</label>
+                    <input type="text" id="scheduledTasks" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="scheduledNextDate" class="block text-sm font-medium text-gray-700">الموعد القادم (تاريخ):</label>
+                    <input type="date" id="scheduledNextDate" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="scheduledNextMileage" class="block text-sm font-medium text-gray-700">الموعد القادم (كم):</label>
+                    <input type="number" id="scheduledNextMileage" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="scheduledWorkshop" class="block text-sm font-medium text-gray-700">الورشة المسؤولة:</label>
+                    <select id="scheduledWorkshop" class="mt-1 block w-full">
+                        <option value="داخلية">داخلية</option>
+                        <option value="خارجية">خارجية</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="scheduledNotes" class="block text-sm font-medium text-gray-700">ملاحظات:</label>
+                    <input type="text" id="scheduledNotes" class="mt-1 block w-full">
+                </div>
+                <button class="btn btn-primary w-full" onclick="addScheduledEntry()">إضافة</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Emergency Maintenance Modal -->
+    <div id="emergencyModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeEmergencyModal()">&times;</span>
+            <h3 class="text-xl font-bold mb-4">إضافة طلب إصلاح طارئ</h3>
+            <div class="space-y-4">
+                <div>
+                    <label for="emergencyRequestId" class="block text-sm font-medium text-gray-700">رقم الطلب:</label>
+                    <input type="text" id="emergencyRequestId" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="emergencyCarNumber" class="block text-sm font-medium text-gray-700">رقم السيارة:</label>
+                    <input type="text" id="emergencyCarNumber" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="emergencyDate" class="block text-sm font-medium text-gray-700">التاريخ:</label>
+                    <input type="date" id="emergencyDate" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="emergencyDescription" class="block text-sm font-medium text-gray-700">وصف العطل:</label>
+                    <input type="text" id="emergencyDescription" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="emergencyPriority" class="block text-sm font-medium text-gray-700">الأولوية:</label>
+                    <select id="emergencyPriority" class="mt-1 block w-full">
+                        <option value="عاجل">عاجل</option>
+                        <option value="متوسط">متوسط</option>
+                        <option value="منخفض">منخفض</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="emergencyStatus" class="block text-sm font-medium text-gray-700">الحالة:</label>
+                    <select id="emergencyStatus" class="mt-1 block w-full">
+                        <option value="قيد الإصلاح">قيد الإصلاح</option>
+                        <option value="تم الإصلاح">تم الإصلاح</option>
+                        <option value="معلق">معلق</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="emergencyCost" class="block text-sm font-medium text-gray-700">التكلفة الفعلية (ريال):</label>
+                    <input type="number" id="emergencyCost" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="emergencyWorkshop" class="block text-sm font-medium text-gray-700">الورشة المسؤولة:</label>
+                    <input type="text" id="emergencyWorkshop" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="emergencyCompletionDate" class="block text-sm font-medium text-gray-700">تاريخ الانتهاء:</label>
+                    <input type="date" id="emergencyCompletionDate" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="emergencyNotes" class="block text-sm font-medium text-gray-700">ملاحظات:</label>
+                    <input type="text" id="emergencyNotes" class="mt-1 block w-full">
+                </div>
+                <button class="btn btn-primary w-full" onclick="addEmergencyEntry()">إضافة</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Annual Report Modal -->
+    <div id="annualModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeAnnualModal()">&times;</span>
+            <h3 class="text-xl font-bold mb-4">إضافة تقرير سنوي</h3>
+            <div class="space-y-4">
+                <div>
+                    <label for="annualCarNumber" class="block text-sm font-medium text-gray-700">رقم السيارة:</label>
+                    <input type="text" id="annualCarNumber" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="annualMileage" class="block text-sm font-medium text-gray-700">المسافة السنوية (كم):</label>
+                    <input type="number" id="annualMileage" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="annualScheduledCount" class="block text-sm font-medium text-gray-700">عدد مرات الصيانة الدورية:</label>
+                    <input type="number" id="annualScheduledCount" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="annualEmergencyCount" class="block text-sm font-medium text-gray-700">عدد مرات الصيانة الطارئة:</label>
+                    <input type="number" id="annualEmergencyCount" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="annualTotalCost" class="block text-sm font-medium text-gray-700">التكاليف الإجمالية (ريال):</label>
+                    <input type="number" id="annualTotalCost" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="annualRecurringFaults" class="block text-sm font-medium text-gray-700">الأعطال المتكررة:</label>
+                    <input type="text" id="annualRecurringFaults" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="annualCarStatus" class="block text-sm font-medium text-gray-700">تقييم حالة السيارة:</label>
+                    <input type="text" id="annualCarStatus" class="mt-1 block w-full" placeholder="مثال: جيدة (⭐️⭐️⭐️⭐️)">
+                </div>
+                <div>
+                    <label for="annualNotesRecommendations" class="block text-sm font-medium text-gray-700">ملاحظات وتوصيات:</label>
+                    <input type="text" id="annualNotesRecommendations" class="mt-1 block w-full">
+                </div>
+                <button class="btn btn-primary w-full" onclick="addAnnualEntry()">إضافة</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Distribution Modal -->
+    <div id="distributionModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeDistributionModal()">&times;</span>
+            <h3 class="text-xl font-bold mb-4">إضافة مجموعة توزيع جديدة</h3>
+            <div class="space-y-4">
+                <div>
+                    <label for="distributionGroupNumber" class="block text-sm font-medium text-gray-700">رقم المجموعة:</label>
+                    <input type="number" id="distributionGroupNumber" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="distributionCarsIncluded" class="block text-sm font-medium text-gray-700">السيارات المشمولة (مثال: د هـ س 2230 - 2234):</label>
+                    <input type="text" id="distributionCarsIncluded" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="distributionMaintenanceDays" class="block text-sm font-medium text-gray-700">أيام الصيانة المخصصة:</label>
+                    <input type="text" id="distributionMaintenanceDays" class="mt-1 block w-full">
+                </div>
+                <div>
+                    <label for="distributionNextScheduledDate" class="block text-sm font-medium text-gray-700">تاريخ الصيانة الدورية القادمة:</label>
+                    <input type="date" id="distributionNextScheduledDate" class="mt-1 block w-full">
+                </div>
+                <button class="btn btn-primary w-full" onclick="addDistributionEntry()">إضافة</button>
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+        // Function to show/hide tabs
+        function showTab(tabId, event) {
+            // Get all tab content elements
+            const tabContents = document.querySelectorAll('.tab-content');
+            // Hide all tab contents
+            tabContents.forEach(content => {
+                content.classList.add('hidden');
+            });
+
+            // Get all tab buttons
+            const tabButtons = document.querySelectorAll('.tab-button');
+            // Remove 'active' class from all buttons
+            tabButtons.forEach(button => {
+                button.classList.remove('active');
+            });
+
+            // Show the selected tab content
+            document.getElementById(tabId).classList.remove('hidden');
+
+            // Determine which button to activate
+            let buttonToActivate;
+            if (event && event.currentTarget) {
+                // If called from a click event, use the clicked button
+                buttonToActivate = event.currentTarget;
+            } else {
+                // If called programmatically (e.g., on DOMContentLoaded), find the button by data-tab-id
+                buttonToActivate = document.querySelector(`.tab-button[data-tab-id="${tabId}"]`);
+            }
+
+            // Add 'active' class to the determined button
+            if (buttonToActivate) {
+                buttonToActivate.classList.add('active');
+            }
+        }
+
+        // Functions to open and close modals
+        function openDailyModal() { document.getElementById('dailyModal').style.display = 'flex'; }
+        function closeDailyModal() { document.getElementById('dailyModal').style.display = 'none'; }
+
+        function openWeeklyModal() { document.getElementById('weeklyModal').style.display = 'flex'; }
+        function closeWeeklyModal() { document.getElementById('weeklyModal').style.display = 'none'; }
+
+        function openScheduledModal() { document.getElementById('scheduledModal').style.display = 'flex'; }
+        function closeScheduledModal() { document.getElementById('scheduledModal').style.display = 'none'; }
+
+        function openEmergencyModal() { document.getElementById('emergencyModal').style.display = 'flex'; }
+        function closeEmergencyModal() { document.getElementById('emergencyModal').style.display = 'none'; }
+
+        function openAnnualModal() { document.getElementById('annualModal').style.display = 'flex'; }
+        function closeAnnualModal() { document.getElementById('annualModal').style.display = 'none'; }
+
+        function openDistributionModal() { document.getElementById('distributionModal').style.display = 'flex'; }
+        function closeDistributionModal() { document.getElementById('distributionModal').style.display = 'none'; }
+
+
+        // Function to add a new row to the Daily Maintenance Table
+        function addDailyEntry() {
+            const tableBody = document.getElementById('dailyMaintenanceTableBody');
+            const carNumber = document.getElementById('dailyCarNumber').value;
+            const date = document.getElementById('dailyDate').value;
+            const oilCheck = document.getElementById('dailyOilCheck').checked ? '<input type="checkbox" checked disabled>' : '<input type="checkbox" disabled>';
+            const tirePressure = document.getElementById('dailyTirePressure').checked ? '<input type="checkbox" checked disabled>' : '<input type="checkbox" disabled>';
+            const lights = document.getElementById('dailyLights').checked ? '<input type="checkbox" checked disabled>' : '<input type="checkbox" disabled>';
+            const brakes = document.getElementById('dailyBrakes').checked ? '<input type="checkbox" checked disabled>' : '<input type="checkbox" disabled>';
+            const coolant = document.getElementById('dailyCoolant').checked ? '<input type="checkbox" checked disabled>' : '<input type="checkbox" disabled>';
+            const cleanliness = document.getElementById('dailyCleanliness').checked ? '<input type="checkbox" checked disabled>' : '<input type="checkbox" disabled>';
+            const notes = document.getElementById('dailyNotes').value;
+            const driverSignature = document.getElementById('dailyDriverSignature').value;
+
+            // Basic validation
+            if (!carNumber || !date || !driverSignature) {
+                alert('الرجاء تعبئة جميع الحقول المطلوبة (رقم السيارة، التاريخ، توقيع السائق).');
+                return;
+            }
+
+            const newRow = tableBody.insertRow();
+            newRow.innerHTML = `
+                <td>${carNumber}</td>
+                <td>${date}</td>
+                <td>${oilCheck}</td>
+                <td>${tirePressure}</td>
+                <td>${lights}</td>
+                <td>${brakes}</td>
+                <td>${coolant}</td>
+                <td>${cleanliness}</td>
+                <td>${notes}</td>
+                <td>${driverSignature}</td>
+            `;
+
+            // Clear form fields and close modal
+            document.getElementById('dailyCarNumber').value = '';
+            document.getElementById('dailyDate').value = '';
+            document.getElementById('dailyOilCheck').checked = false;
+            document.getElementById('dailyTirePressure').checked = false;
+            document.getElementById('dailyLights').checked = false;
+            document.getElementById('dailyBrakes').checked = false;
+            document.getElementById('dailyCoolant').checked = false;
+            document.getElementById('dailyCleanliness').checked = false;
+            document.getElementById('dailyNotes').value = '';
+            document.getElementById('dailyDriverSignature').value = '';
+            closeDailyModal();
+        }
+
+        // Function to add a new row to the Weekly Maintenance Table
+        function addWeeklyEntry() {
+            const tableBody = document.getElementById('weeklyMaintenanceTableBody');
+            const carNumber = document.getElementById('weeklyCarNumber').value;
+            const week = document.getElementById('weeklyWeek').value;
+            const date = document.getElementById('weeklyDate').value;
+            const batteryCheck = document.getElementById('weeklyBatteryCheck').checked ? '<input type="checkbox" checked disabled>' : '<input type="checkbox" disabled>';
+            const engineBelt = document.getElementById('weeklyEngineBelt').checked ? '<input type="checkbox" checked disabled>' : '<input type="checkbox" disabled>';
+            const suspension = document.getElementById('weeklySuspension').checked ? '<input type="checkbox" checked disabled>' : '<input type="checkbox" disabled>';
+            const filters = document.getElementById('weeklyFilters').checked ? '<input type="checkbox" checked disabled>' : '<input type="checkbox" disabled>';
+            const notes = document.getElementById('weeklyNotes').value;
+            const technicianName = document.getElementById('weeklyTechnicianName').value;
+
+            // Basic validation
+            if (!carNumber || !week || !date || !technicianName) {
+                alert('الرجاء تعبئة جميع الحقول المطلوبة (رقم السيارة، الأسبوع، تاريخ الفحص، اسم فني الصيانة).');
+                return;
+            }
+
+            const newRow = tableBody.insertRow();
+            newRow.innerHTML = `
+                <td>${carNumber}</td>
+                <td>${week}</td>
+                <td>${date}</td>
+                <td>${batteryCheck}</td>
+                <td>${engineBelt}</td>
+                <td>${suspension}</td>
+                <td>${filters}</td>
+                <td>${notes}</td>
+                <td>${technicianName}</td>
+            `;
+
+            // Clear form fields and close modal
+            document.getElementById('weeklyCarNumber').value = '';
+            document.getElementById('weeklyWeek').value = '';
+            document.getElementById('weeklyDate').value = '';
+            document.getElementById('weeklyBatteryCheck').checked = false;
+            document.getElementById('weeklyEngineBelt').checked = false;
+            document.getElementById('weeklySuspension').checked = false;
+            document.getElementById('weeklyFilters').checked = false;
+            document.getElementById('weeklyNotes').value = '';
+            document.getElementById('weeklyTechnicianName').value = '';
+            closeWeeklyModal();
+        }
+
+        // Function to add a new row to the Scheduled Maintenance Table
+        function addScheduledEntry() {
+            const tableBody = document.getElementById('scheduledMaintenanceTableBody');
+            const carNumber = document.getElementById('scheduledCarNumber').value;
+            const type = document.getElementById('scheduledType').value;
+            const lastDate = document.getElementById('scheduledLastDate').value;
+            const mileage = document.getElementById('scheduledMileage').value;
+            const tasks = document.getElementById('scheduledTasks').value;
+            const nextDate = document.getElementById('scheduledNextDate').value;
+            const nextMileage = document.getElementById('scheduledNextMileage').value;
+            const workshop = document.getElementById('scheduledWorkshop').value;
+            const notes = document.getElementById('scheduledNotes').value;
+
+            // Basic validation
+            if (!carNumber || !type || !lastDate || !mileage || !tasks || !nextDate || !nextMileage || !workshop) {
+                alert('الرجاء تعبئة جميع الحقول المطلوبة.');
+                return;
+            }
+
+            const newRow = tableBody.insertRow();
+            newRow.innerHTML = `
+                <td>${carNumber}</td>
+                <td>${type}</td>
+                <td>${lastDate}</td>
+                <td>${mileage}</td>
+                <td>${tasks}</td>
+                <td>${nextDate}</td>
+                <td>${nextMileage}</td>
+                <td>${workshop}</td>
+                <td>${notes}</td>
+            `;
+
+            // Clear form fields and close modal
+            document.getElementById('scheduledCarNumber').value = '';
+            document.getElementById('scheduledType').value = 'شهرية';
+            document.getElementById('scheduledLastDate').value = '';
+            document.getElementById('scheduledMileage').value = '';
+            document.getElementById('scheduledTasks').value = '';
+            document.getElementById('scheduledNextDate').value = '';
+            document.getElementById('scheduledNextMileage').value = '';
+            document.getElementById('scheduledWorkshop').value = 'داخلية';
+            document.getElementById('scheduledNotes').value = '';
+            closeScheduledModal();
+        }
+
+        // Function to add a new row to the Emergency Maintenance Table
+        function addEmergencyEntry() {
+            const tableBody = document.getElementById('emergencyMaintenanceTableBody');
+            const requestId = document.getElementById('emergencyRequestId').value;
+            const carNumber = document.getElementById('emergencyCarNumber').value;
+            const date = document.getElementById('emergencyDate').value;
+            const description = document.getElementById('emergencyDescription').value;
+            const priority = document.getElementById('emergencyPriority').value;
+            const status = document.getElementById('emergencyStatus').value;
+            const cost = document.getElementById('emergencyCost').value;
+            const workshop = document.getElementById('emergencyWorkshop').value;
+            const completionDate = document.getElementById('emergencyCompletionDate').value;
+            const notes = document.getElementById('emergencyNotes').value;
+
+            // Basic validation
+            if (!requestId || !carNumber || !date || !description || !priority || !status || !cost || !workshop) {
+                alert('الرجاء تعبئة جميع الحقول المطلوبة.');
+                return;
+            }
+
+            const newRow = tableBody.insertRow();
+            newRow.innerHTML = `
+                <td>${requestId}</td>
+                <td>${carNumber}</td>
+                <td>${date}</td>
+                <td>${description}</td>
+                <td>${priority}</td>
+                <td>${status}</td>
+                <td>${cost}</td>
+                <td>${workshop}</td>
+                <td>${completionDate}</td>
+                <td>${notes}</td>
+            `;
+
+            // Clear form fields and close modal
+            document.getElementById('emergencyRequestId').value = '';
+            document.getElementById('emergencyCarNumber').value = '';
+            document.getElementById('emergencyDate').value = '';
+            document.getElementById('emergencyDescription').value = '';
+            document.getElementById('emergencyPriority').value = 'عاجل';
+            document.getElementById('emergencyStatus').value = 'قيد الإصلاح';
+            document.getElementById('emergencyCost').value = '';
+            document.getElementById('emergencyWorkshop').value = '';
+            document.getElementById('emergencyCompletionDate').value = '';
+            document.getElementById('emergencyNotes').value = '';
+            closeEmergencyModal();
+        }
+
+        // Function to add a new row to the Annual Report Table
+        function addAnnualEntry() {
+            const tableBody = document.getElementById('annualReportTableBody');
+            const carNumber = document.getElementById('annualCarNumber').value;
+            const mileage = document.getElementById('annualMileage').value;
+            const scheduledCount = document.getElementById('annualScheduledCount').value;
+            const emergencyCount = document.getElementById('annualEmergencyCount').value;
+            const totalCost = document.getElementById('annualTotalCost').value;
+            const recurringFaults = document.getElementById('annualRecurringFaults').value;
+            const carStatus = document.getElementById('annualCarStatus').value;
+            const notesRecommendations = document.getElementById('annualNotesRecommendations').value;
+
+            // Basic validation
+            if (!carNumber || !mileage || !scheduledCount || !emergencyCount || !totalCost || !carStatus) {
+                alert('الرجاء تعبئة جميع الحقول المطلوبة.');
+                return;
+            }
+
+            const newRow = tableBody.insertRow();
+            newRow.innerHTML = `
+                <td>${carNumber}</td>
+                <td>${mileage}</td>
+                <td>${scheduledCount}</td>
+                <td>${emergencyCount}</td>
+                <td>${totalCost}</td>
+                <td>${recurringFaults}</td>
+                <td>${carStatus}</td>
+                <td>${notesRecommendations}</td>
+            `;
+
+            // Clear form fields and close modal
+            document.getElementById('annualCarNumber').value = '';
+            document.getElementById('annualMileage').value = '';
+            document.getElementById('annualScheduledCount').value = '';
+            document.getElementById('annualEmergencyCount').value = '';
+            document.getElementById('annualTotalCost').value = '';
+            document.getElementById('annualRecurringFaults').value = '';
+            document.getElementById('annualCarStatus').value = '';
+            document.getElementById('annualNotesRecommendations').value = '';
+            closeAnnualModal();
+        }
+
+        // Function to add a new row to the Distribution Table
+        function addDistributionEntry() {
+            const tableBody = document.getElementById('distributionTableBody');
+            const groupNumber = document.getElementById('distributionGroupNumber').value;
+            const carsIncluded = document.getElementById('distributionCarsIncluded').value;
+            const maintenanceDays = document.getElementById('distributionMaintenanceDays').value;
+            const nextScheduledDate = document.getElementById('distributionNextScheduledDate').value;
+
+            // Basic validation
+            if (!groupNumber || !carsIncluded || !maintenanceDays || !nextScheduledDate) {
+                alert('الرجاء تعبئة جميع الحقول المطلوبة.');
+                return;
+            }
+
+            const newRow = tableBody.insertRow();
+            newRow.innerHTML = `
+                <td>${groupNumber}</td>
+                <td>${carsIncluded}</td>
+                <td>${maintenanceDays}</td>
+                <td>${nextScheduledDate}</td>
+            `;
+
+            // Clear form fields and close modal
+            document.getElementById('distributionGroupNumber').value = '';
+            document.getElementById('distributionCarsIncluded').value = '';
+            document.getElementById('distributionMaintenanceDays').value = '';
+            document.getElementById('distributionNextScheduledDate').value = '';
+            closeDistributionModal();
+        }
+
+        // Initial tab display
+        document.addEventListener('DOMContentLoaded', () => {
+            showTab('daily'); // Show daily tab by default
+        });
+
+        // Close modal when clicking outside of it
+        window.onclick = function(event) {
+            const modals = document.querySelectorAll('.modal');
+            modals.forEach(modal => {
+                if (event.target == modal) {
+                    modal.style.display = "none";
+                }
+            });
+        }
+    </script>
+</body>
+</html>
