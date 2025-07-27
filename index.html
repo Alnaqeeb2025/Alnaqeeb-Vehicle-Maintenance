@@ -1,0 +1,1236 @@
+import React, { useState, useEffect, createContext, useContext } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, collection, addDoc, getDocs, onSnapshot, doc, updateDoc, deleteDoc, query, where } from 'firebase/firestore';
+
+// Context for Firebase and User data
+const AppContext = createContext();
+
+// Custom Modal Component (replaces alert/confirm)
+const CustomModal = ({ isOpen, title, message, onClose, onConfirm, showConfirmButton = false }) => {
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full mx-4 text-right" dir="rtl">
+                <h3 className="text-lg font-semibold mb-4 text-gray-800">{title}</h3>
+                <p className="text-gray-700 mb-6">{message}</p>
+                <div className="flex justify-end space-x-2">
+                    <button
+                        onClick={onClose}
+                        className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-colors duration-200"
+                    >
+                        إغلاق
+                    </button>
+                    {showConfirmButton && (
+                        <button
+                            onClick={onConfirm}
+                            className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors duration-200"
+                        >
+                            تأكيد
+                        </button>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// Main App Component
+function App() {
+    const [db, setDb] = useState(null);
+    const [auth, setAuth] = useState(null);
+    const [userId, setUserId] = useState(null);
+    const [isAuthReady, setIsAuthReady] = useState(false);
+    const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'cars', 'dailyCheck', 'emergency', 'monthly', 'annualReport'
+    const [cars, setCars] = useState([]);
+    const [maintenanceRecords, setMaintenanceRecords] = useState([]);
+    const [selectedCar, setSelectedCar] = useState(null);
+
+    // Modal state
+    const [modal, setModal] = useState({
+        isOpen: false,
+        title: '',
+        message: '',
+        onClose: () => setModal({ ...modal, isOpen: false }),
+        onConfirm: null,
+        showConfirmButton: false,
+    });
+
+    // Initialize Firebase
+    useEffect(() => {
+        try {
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+            const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+
+            if (Object.keys(firebaseConfig).length === 0) {
+                console.error("Firebase config is missing. Please provide it via __firebase_config.");
+                setModal({
+                    isOpen: true,
+                    title: 'خطأ في التهيئة',
+                    message: 'لم يتم توفير إعدادات Firebase بشكل صحيح. يرجى التحقق من التكوين.',
+                });
+                return;
+            }
+
+            const app = initializeApp(firebaseConfig);
+            const firestore = getFirestore(app);
+            const authInstance = getAuth(app);
+
+            setDb(firestore);
+            setAuth(authInstance);
+
+            const unsubscribe = onAuthStateChanged(authInstance, async (user) => {
+                if (user) {
+                    setUserId(user.uid);
+                } else {
+                    // Sign in anonymously if no user is authenticated and no custom token is available
+                    if (typeof __initial_auth_token === 'undefined' || !__initial_auth_token) {
+                        await signInAnonymously(authInstance);
+                    }
+                }
+                setIsAuthReady(true);
+            });
+
+            // Attempt to sign in with custom token if available
+            const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+            if (authInstance && initialAuthToken) {
+                signInWithCustomToken(authInstance, initialAuthToken)
+                    .then(() => console.log("Signed in with custom token"))
+                    .catch((error) => {
+                        console.error("Error signing in with custom token:", error);
+                        // Fallback to anonymous if custom token fails
+                        signInAnonymously(authInstance)
+                            .then(() => console.log("Signed in anonymously after custom token failure"))
+                            .catch(anonError => console.error("Error signing in anonymously:", anonError));
+                    });
+            } else if (authInstance) {
+                // If no custom token, sign in anonymously
+                signInAnonymously(authInstance)
+                    .then(() => console.log("Signed in anonymously"))
+                    .catch(anonError => console.error("Error signing in anonymously:", anonError));
+            }
+
+            return () => unsubscribe();
+        } catch (error) {
+            console.error("Failed to initialize Firebase:", error);
+            setModal({
+                isOpen: true,
+                title: 'خطأ فادح',
+                message: `فشل تهيئة Firebase: ${error.message}. يرجى التحقق من إعداداتك.`,
+            });
+        }
+    }, []);
+
+    // Fetch Cars and Maintenance Records
+    useEffect(() => {
+        if (!db || !isAuthReady || !userId) return;
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        // Listen for cars collection (public data)
+        const carsRef = collection(db, `artifacts/${appId}/public/data/cars`);
+        const unsubscribeCars = onSnapshot(carsRef, (snapshot) => {
+            const carsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setCars(carsData);
+        }, (error) => {
+            console.error("Error fetching cars:", error);
+            setModal({
+                isOpen: true,
+                title: 'خطأ في جلب البيانات',
+                message: `فشل جلب بيانات السيارات: ${error.message}`,
+            });
+        });
+
+        // Listen for maintenance records (private data)
+        const maintenanceRef = collection(db, `artifacts/${appId}/users/${userId}/maintenanceRecords`);
+        const unsubscribeMaintenance = onSnapshot(maintenanceRef, (snapshot) => {
+            const recordsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setMaintenanceRecords(recordsData);
+        }, (error) => {
+            console.error("Error fetching maintenance records:", error);
+            setModal({
+                isOpen: true,
+                title: 'خطأ في جلب البيانات',
+                message: `فشل جلب سجلات الصيانة: ${error.message}`,
+            });
+        });
+
+        return () => {
+            unsubscribeCars();
+            unsubscribeMaintenance();
+        };
+    }, [db, isAuthReady, userId]);
+
+    const showMessage = (title, message, showConfirm = false, onConfirm = null) => {
+        setModal({
+            isOpen: true,
+            title,
+            message,
+            onClose: () => setModal({ ...modal, isOpen: false }),
+            onConfirm,
+            showConfirmButton: showConfirm,
+        });
+    };
+
+    if (!isAuthReady) {
+        return (
+            <div className="flex items-center justify-center min-h-screen bg-gray-100">
+                <div className="text-center p-6 bg-white rounded-lg shadow-md">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto mb-4"></div>
+                    <p className="text-gray-700">جاري تحميل التطبيق...</p>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <AppContext.Provider value={{ db, auth, userId, cars, maintenanceRecords, setCars, setMaintenanceRecords, showMessage, selectedCar, setSelectedCar }}>
+            <div className="min-h-screen bg-gray-100 font-sans text-gray-900" dir="rtl">
+                <CustomModal {...modal} />
+
+                <nav className="bg-gradient-to-r from-blue-600 to-blue-800 p-4 shadow-lg">
+                    <div className="container mx-auto flex flex-wrap justify-between items-center">
+                        <h1 className="text-white text-2xl font-bold rounded-md px-3 py-1">نظام إدارة صيانة السيارات</h1>
+                        <div className="flex space-x-4 space-x-reverse mt-2 md:mt-0">
+                            <NavItem onClick={() => setCurrentView('dashboard')} isActive={currentView === 'dashboard'}>الرئيسية</NavItem>
+                            <NavItem onClick={() => setCurrentView('cars')} isActive={currentView === 'cars'}>السيارات</NavItem>
+                            <NavItem onClick={() => setCurrentView('dailyCheck')} isActive={currentView === 'dailyCheck'}>فحص يومي</NavItem>
+                            <NavItem onClick={() => setCurrentView('emergency')} isActive={currentView === 'emergency'}>طلب إصلاح طارئ</NavItem>
+                            <NavItem onClick={() => setCurrentView('monthly')} isActive={currentView === 'monthly'}>صيانة دورية</NavItem>
+                            <NavItem onClick={() => setCurrentView('annualReport')} isActive={currentView === 'annualReport'}>تقارير سنوية</NavItem>
+                        </div>
+                        <div className="text-white text-sm mt-2 md:mt-0">
+                            معرف المستخدم: {userId}
+                        </div>
+                    </div>
+                </nav>
+
+                <main className="container mx-auto p-6">
+                    {currentView === 'dashboard' && <Dashboard />}
+                    {currentView === 'cars' && <CarManagement />}
+                    {currentView === 'dailyCheck' && <DailyCheckForm />}
+                    {currentView === 'emergency' && <EmergencyRequestForm />}
+                    {currentView === 'monthly' && <MonthlyMaintenanceForm />}
+                    {currentView === 'annualReport' && <AnnualReport />}
+                </main>
+            </div>
+        </AppContext.Provider>
+    );
+}
+
+// Navigation Item Component
+const NavItem = ({ children, onClick, isActive }) => (
+    <button
+        onClick={onClick}
+        className={`px-4 py-2 rounded-md transition-all duration-300 ${isActive ? 'bg-blue-500 text-white shadow-md' : 'text-blue-100 hover:bg-blue-700 hover:text-white'}`}
+    >
+        {children}
+    </button>
+);
+
+// Dashboard Component
+const Dashboard = () => {
+    const { cars, maintenanceRecords } = useContext(AppContext);
+
+    // Calculate upcoming maintenance (example: next 30 days for monthly/quarterly/annual)
+    const upcomingMaintenance = maintenanceRecords.filter(record => {
+        const nextDate = record.nextMaintenanceDate ? new Date(record.nextMaintenanceDate) : null;
+        if (!nextDate) return false;
+        const today = new Date();
+        const thirtyDaysLater = new Date();
+        thirtyDaysLater.setDate(today.getDate() + 30);
+        return nextDate >= today && nextDate <= thirtyDaysLater;
+    }).sort((a, b) => new Date(a.nextMaintenanceDate) - new Date(b.nextMaintenanceDate));
+
+    // Calculate open emergency requests
+    const openEmergencyRequests = maintenanceRecords.filter(record =>
+        record.type === 'emergency' && record.status !== 'تم الإصلاح'
+    );
+
+    return (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <DashboardCard title="إجمالي السيارات" value={cars.length} icon="🚗" />
+            <DashboardCard title="صيانة قادمة (30 يومًا)" value={upcomingMaintenance.length} icon="�️" />
+            <DashboardCard title="طلبات إصلاح مفتوحة" value={openEmergencyRequests.length} icon="⚠️" />
+
+            <div className="lg:col-span-2 bg-white p-6 rounded-lg shadow-md">
+                <h2 className="text-xl font-semibold mb-4 text-gray-800">الصيانة القادمة</h2>
+                {upcomingMaintenance.length > 0 ? (
+                    <ul className="space-y-3">
+                        {upcomingMaintenance.map(record => (
+                            <li key={record.id} className="p-3 bg-blue-50 rounded-md border border-blue-200 flex justify-between items-center text-sm">
+                                <div>
+                                    <p className="font-medium">السيارة: {record.carNumber}</p>
+                                    <p>النوع: {record.type}</p>
+                                    <p>الموعد: {new Date(record.nextMaintenanceDate).toLocaleDateString('ar-SA')}</p>
+                                </div>
+                                <span className="text-blue-600 font-bold">قريبًا</span>
+                            </li>
+                        ))}
+                    </ul>
+                ) : (
+                    <p className="text-gray-600">لا توجد صيانة قادمة خلال 30 يومًا.</p>
+                )}
+            </div>
+
+            <div className="bg-white p-6 rounded-lg shadow-md">
+                <h2 className="text-xl font-semibold mb-4 text-gray-800">طلبات الإصلاح المفتوحة</h2>
+                {openEmergencyRequests.length > 0 ? (
+                    <ul className="space-y-3">
+                        {openEmergencyRequests.map(record => (
+                            <li key={record.id} className="p-3 bg-yellow-50 rounded-md border border-yellow-200 text-sm">
+                                <p className="font-medium">السيارة: {record.carNumber}</p>
+                                <p>العطل: {record.description}</p>
+                                <p>الحالة: <span className="font-semibold text-yellow-700">{record.status}</span></p>
+                            </li>
+                        ))}
+                    </ul>
+                ) : (
+                    <p className="text-gray-600">لا توجد طلبات إصلاح مفتوحة حاليًا.</p>
+                )}
+            </div>
+        </div>
+    );
+};
+
+// Dashboard Card Component
+const DashboardCard = ({ title, value, icon }) => (
+    <div className="bg-white p-6 rounded-lg shadow-md flex items-center justify-between">
+        <div>
+            <h3 className="text-lg font-semibold text-gray-700">{title}</h3>
+            <p className="text-3xl font-bold text-blue-600">{value}</p>
+        </div>
+        <span className="text-5xl">{icon}</span>
+    </div>
+);
+
+// Car Management Component
+const CarManagement = () => {
+    const { cars, showMessage, db, setCars } = useContext(AppContext);
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+    const [isAddingCar, setIsAddingCar] = useState(false);
+    const [newCarData, setNewCarData] = useState({
+        carNumber: '', model: '', year: '', fuelType: '', plateNumber: '', owner: '', currentMileage: 0
+    });
+    const [editingCar, setEditingCar] = useState(null); // State to hold car being edited
+
+    const handleInputChange = (e) => {
+        const { name, value } = e.target;
+        setNewCarData(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleAddCar = async (e) => {
+        e.preventDefault();
+        if (!db) {
+            showMessage('خطأ', 'قاعدة البيانات غير مهيأة.');
+            return;
+        }
+
+        if (!newCarData.carNumber || !newCarData.model || !newCarData.plateNumber) {
+            showMessage('خطأ', 'الرجاء ملء الحقول المطلوبة (رقم السيارة، الموديل، رقم اللوحة).');
+            return;
+        }
+
+        try {
+            const carsCollectionRef = collection(db, `artifacts/${appId}/public/data/cars`);
+            await addDoc(carsCollectionRef, newCarData);
+            showMessage('نجاح', 'تمت إضافة السيارة بنجاح!');
+            setNewCarData({ carNumber: '', model: '', year: '', fuelType: '', plateNumber: '', owner: '', currentMileage: 0 });
+            setIsAddingCar(false);
+        } catch (error) {
+            console.error("Error adding car:", error);
+            showMessage('خطأ', `فشل إضافة السيارة: ${error.message}`);
+        }
+    };
+
+    const handleEditCar = (car) => {
+        setEditingCar(car);
+        setNewCarData(car); // Populate form with existing car data
+        setIsAddingCar(true); // Show the form for editing
+    };
+
+    const handleUpdateCar = async (e) => {
+        e.preventDefault();
+        if (!db || !editingCar) {
+            showMessage('خطأ', 'قاعدة البيانات غير مهيأة أو لا توجد سيارة للتحديث.');
+            return;
+        }
+
+        try {
+            const carDocRef = doc(db, `artifacts/${appId}/public/data/cars`, editingCar.id);
+            await updateDoc(carDocRef, newCarData);
+            showMessage('نجاح', 'تم تحديث بيانات السيارة بنجاح!');
+            setEditingCar(null);
+            setNewCarData({ carNumber: '', model: '', year: '', fuelType: '', plateNumber: '', owner: '', currentMileage: 0 });
+            setIsAddingCar(false);
+        } catch (error) {
+            console.error("Error updating car:", error);
+            showMessage('خطأ', `فشل تحديث السيارة: ${error.message}`);
+        }
+    };
+
+    const handleDeleteCar = (carId) => {
+        showMessage(
+            'تأكيد الحذف',
+            'هل أنت متأكد أنك تريد حذف هذه السيارة؟ سيتم حذف جميع سجلات الصيانة المتعلقة بها أيضًا.',
+            true,
+            async () => {
+                try {
+                    // Delete car document
+                    const carDocRef = doc(db, `artifacts/${appId}/public/data/cars`, carId);
+                    await deleteDoc(carDocRef);
+
+                    // Optional: Delete related maintenance records (more complex query needed for private data)
+                    // For simplicity, this example only deletes the car.
+                    // In a real app, you'd query and delete all maintenance records linked to this carId.
+
+                    showMessage('نجاح', 'تم حذف السيارة بنجاح!');
+                    setCars(prev => prev.filter(car => car.id !== carId)); // Update local state
+                } catch (error) {
+                    console.error("Error deleting car:", error);
+                    showMessage('خطأ', `فشل حذف السيارة: ${error.message}`);
+                }
+            }
+        );
+    };
+
+    return (
+        <div className="bg-white p-6 rounded-lg shadow-md">
+            <h2 className="text-xl font-semibold mb-4 text-gray-800">إدارة السيارات</h2>
+
+            <button
+                onClick={() => { setIsAddingCar(!isAddingCar); setEditingCar(null); setNewCarData({ carNumber: '', model: '', year: '', fuelType: '', plateNumber: '', owner: '', currentMileage: 0 }); }}
+                className="mb-6 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 shadow-md"
+            >
+                {isAddingCar ? 'إلغاء إضافة/تعديل سيارة' : 'إضافة سيارة جديدة'}
+            </button>
+
+            {isAddingCar && (
+                <form onSubmit={editingCar ? handleUpdateCar : handleAddCar} className="mb-8 p-6 border border-gray-200 rounded-lg bg-gray-50">
+                    <h3 className="text-lg font-semibold mb-4 text-gray-800">{editingCar ? 'تعديل بيانات السيارة' : 'إضافة سيارة جديدة'}</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <InputField label="رقم السيارة" name="carNumber" value={newCarData.carNumber} onChange={handleInputChange} required />
+                        <InputField label="الموديل" name="model" value={newCarData.model} onChange={handleInputChange} required />
+                        <InputField label="سنة الصنع" name="year" type="number" value={newCarData.year} onChange={handleInputChange} />
+                        <InputField label="نوع الوقود" name="fuelType" value={newCarData.fuelType} onChange={handleInputChange} />
+                        <InputField label="رقم اللوحة" name="plateNumber" value={newCarData.plateNumber} onChange={handleInputChange} required />
+                        <InputField label="المالك/المستخدم الأساسي" name="owner" value={newCarData.owner} onChange={handleInputChange} />
+                        <InputField label="عداد المسافات الحالي (كم)" name="currentMileage" type="number" value={newCarData.currentMileage} onChange={handleInputChange} />
+                    </div>
+                    <button
+                        type="submit"
+                        className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors duration-200 shadow-md"
+                    >
+                        {editingCar ? 'تحديث السيارة' : 'إضافة السيارة'}
+                    </button>
+                </form>
+            )}
+
+            <h3 className="text-lg font-semibold mb-4 text-gray-800">قائمة السيارات المسجلة</h3>
+            {cars.length === 0 ? (
+                <p className="text-gray-600">لا توجد سيارات مسجلة بعد. ابدأ بإضافة سيارة جديدة!</p>
+            ) : (
+                <div className="overflow-x-auto">
+                    <table className="min-w-full bg-white border border-gray-200 rounded-lg">
+                        <thead className="bg-gray-100">
+                            <tr>
+                                <th className="py-3 px-4 border-b text-right">رقم السيارة</th>
+                                <th className="py-3 px-4 border-b text-right">الموديل</th>
+                                <th className="py-3 px-4 border-b text-right">رقم اللوحة</th>
+                                <th className="py-3 px-4 border-b text-right">عداد المسافات</th>
+                                <th className="py-3 px-4 border-b text-right">الإجراءات</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {cars.map(car => (
+                                <tr key={car.id} className="hover:bg-gray-50 transition-colors duration-150">
+                                    <td className="py-3 px-4 border-b">{car.carNumber}</td>
+                                    <td className="py-3 px-4 border-b">{car.model}</td>
+                                    <td className="py-3 px-4 border-b">{car.plateNumber}</td>
+                                    <td className="py-3 px-4 border-b">{car.currentMileage || 'غير محدد'} كم</td>
+                                    <td className="py-3 px-4 border-b">
+                                        <button
+                                            onClick={() => handleEditCar(car)}
+                                            className="ml-2 px-3 py-1 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors duration-200 text-sm"
+                                        >
+                                            تعديل
+                                        </button>
+                                        <button
+                                            onClick={() => handleDeleteCar(car.id)}
+                                            className="px-3 py-1 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors duration-200 text-sm"
+                                        >
+                                            حذف
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// Form Input Field Component
+const InputField = ({ label, name, value, onChange, type = 'text', required = false }) => (
+    <div>
+        <label htmlFor={name} className="block text-sm font-medium text-gray-700 mb-1">
+            {label} {required && <span className="text-red-500">*</span>}
+        </label>
+        <input
+            type={type}
+            id={name}
+            name={name}
+            value={value}
+            onChange={onChange}
+            required={required}
+            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+        />
+    </div>
+);
+
+// Form Select Field Component
+const SelectField = ({ label, name, value, onChange, options, required = false }) => (
+    <div>
+        <label htmlFor={name} className="block text-sm font-medium text-gray-700 mb-1">
+            {label} {required && <span className="text-red-500">*</span>}
+        </label>
+        <select
+            id={name}
+            name={name}
+            value={value}
+            onChange={onChange}
+            required={required}
+            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white"
+        >
+            <option value="">اختر...</option>
+            {options.map((option, index) => (
+                <option key={index} value={option.value || option}>{option.label || option}</option>
+            ))}
+        </select>
+    </div>
+);
+
+// Daily Check Form Component
+const DailyCheckForm = () => {
+    const { db, userId, cars, showMessage } = useContext(AppContext);
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+    const [formData, setFormData] = useState({
+        carId: '',
+        carNumber: '', // To store car number for easier display/query
+        date: new Date().toISOString().split('T')[0],
+        oilCheck: false,
+        tirePressure: '',
+        lightsCheck: false,
+        brakesCheck: false,
+        coolingFluidsCheck: false,
+        cleanlinessCheck: false,
+        notes: '',
+        driverSignature: '',
+    });
+
+    const handleCarSelect = (e) => {
+        const selectedCarId = e.target.value;
+        const car = cars.find(c => c.id === selectedCarId);
+        setFormData(prev => ({
+            ...prev,
+            carId: selectedCarId,
+            carNumber: car ? car.carNumber : '',
+        }));
+    };
+
+    const handleInputChange = (e) => {
+        const { name, value, type, checked } = e.target;
+        setFormData(prev => ({
+            ...prev,
+            [name]: type === 'checkbox' ? checked : value,
+        }));
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!db || !userId) {
+            showMessage('خطأ', 'قاعدة البيانات أو معرف المستخدم غير متاح.');
+            return;
+        }
+        if (!formData.carId || !formData.date || !formData.driverSignature) {
+            showMessage('خطأ', 'الرجاء ملء الحقول المطلوبة (رقم السيارة، التاريخ، توقيع السائق).');
+            return;
+        }
+
+        try {
+            const maintenanceCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/maintenanceRecords`);
+            await addDoc(maintenanceCollectionRef, {
+                ...formData,
+                type: 'صيانة يومية',
+                timestamp: new Date(),
+            });
+            showMessage('نجاح', 'تم تسجيل الفحص اليومي بنجاح!');
+            setFormData({
+                carId: '',
+                carNumber: '',
+                date: new Date().toISOString().split('T')[0],
+                oilCheck: false,
+                tirePressure: '',
+                lightsCheck: false,
+                brakesCheck: false,
+                coolingFluidsCheck: false,
+                cleanlinessCheck: false,
+                notes: '',
+                driverSignature: '',
+            });
+        } catch (error) {
+            console.error("Error adding daily check:", error);
+            showMessage('خطأ', `فشل تسجيل الفحص اليومي: ${error.message}`);
+        }
+    };
+
+    return (
+        <div className="bg-white p-6 rounded-lg shadow-md">
+            <h2 className="text-xl font-semibold mb-4 text-gray-800">نموذج الفحص اليومي للسيارة</h2>
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <SelectField
+                    label="رقم السيارة"
+                    name="carId"
+                    value={formData.carId}
+                    onChange={handleCarSelect}
+                    options={cars.map(car => ({ value: car.id, label: car.carNumber }))}
+                    required
+                />
+                <InputField label="التاريخ" name="date" type="date" value={formData.date} onChange={handleInputChange} required />
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <CheckboxField label="فحص الزيت" name="oilCheck" checked={formData.oilCheck} onChange={handleInputChange} />
+                    <InputField label="ضغط الإطارات" name="tirePressure" value={formData.tirePressure} onChange={handleInputChange} placeholder="مثال: 32 PSI" />
+                    <CheckboxField label="فحص الإضاءة" name="lightsCheck" checked={formData.lightsCheck} onChange={handleInputChange} />
+                    <CheckboxField label="فحص الفرامل" name="brakesCheck" checked={formData.brakesCheck} onChange={handleInputChange} />
+                    <CheckboxField label="فحص سوائل التبريد" name="coolingFluidsCheck" checked={formData.coolingFluidsCheck} onChange={handleInputChange} />
+                    <CheckboxField label="نظافة السيارة" name="cleanlinessCheck" checked={formData.cleanlinessCheck} onChange={handleInputChange} />
+                </div>
+
+                <InputField label="ملاحظات" name="notes" value={formData.notes} onChange={handleInputChange} type="textarea" />
+                <InputField label="توقيع السائق" name="driverSignature" value={formData.driverSignature} onChange={handleInputChange} required />
+
+                <button
+                    type="submit"
+                    className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 shadow-md"
+                >
+                    تسجيل الفحص
+                </button>
+            </form>
+        </div>
+    );
+};
+
+// Checkbox Field Component
+const CheckboxField = ({ label, name, checked, onChange }) => (
+    <div className="flex items-center">
+        <input
+            type="checkbox"
+            id={name}
+            name={name}
+            checked={checked}
+            onChange={onChange}
+            className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+        />
+        <label htmlFor={name} className="mr-2 text-sm font-medium text-gray-700">
+            {label}
+        </label>
+    </div>
+);
+
+
+// Emergency Request Form Component
+const EmergencyRequestForm = () => {
+    const { db, userId, cars, showMessage } = useContext(AppContext);
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+    const [formData, setFormData] = useState({
+        carId: '',
+        carNumber: '',
+        date: new Date().toISOString().split('T')[0],
+        description: '',
+        priority: 'متوسط', // 'عاجل', 'متوسط', 'منخفض'
+        status: 'قيد الانتظار', // 'قيد الانتظار', 'قيد الإصلاح', 'تم الإصلاح', 'بانتظار قطع الغيار'
+        estimatedCost: 0,
+        actualCost: 0,
+        signature: '',
+    });
+
+    const [editingRequest, setEditingRequest] = useState(null);
+
+    const handleCarSelect = (e) => {
+        const selectedCarId = e.target.value;
+        const car = cars.find(c => c.id === selectedCarId);
+        setFormData(prev => ({
+            ...prev,
+            carId: selectedCarId,
+            carNumber: car ? car.carNumber : '',
+        }));
+    };
+
+    const handleInputChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!db || !userId) {
+            showMessage('خطأ', 'قاعدة البيانات أو معرف المستخدم غير متاح.');
+            return;
+        }
+        if (!formData.carId || !formData.description || !formData.signature) {
+            showMessage('خطأ', 'الرجاء ملء الحقول المطلوبة (رقم السيارة، وصف العطل، التوقيع).');
+            return;
+        }
+
+        try {
+            const maintenanceCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/maintenanceRecords`);
+            if (editingRequest) {
+                const docRef = doc(maintenanceCollectionRef, editingRequest.id);
+                await updateDoc(docRef, { ...formData, timestamp: new Date() });
+                showMessage('نجاح', 'تم تحديث طلب الإصلاح بنجاح!');
+                setEditingRequest(null);
+            } else {
+                await addDoc(maintenanceCollectionRef, {
+                    ...formData,
+                    type: 'صيانة طارئة',
+                    timestamp: new Date(),
+                });
+                showMessage('نجاح', 'تم تسجيل طلب الإصلاح الطارئ بنجاح!');
+            }
+            setFormData({
+                carId: '', carNumber: '', date: new Date().toISOString().split('T')[0],
+                description: '', priority: 'متوسط', status: 'قيد الانتظار',
+                estimatedCost: 0, actualCost: 0, signature: ''
+            });
+        } catch (error) {
+            console.error("Error submitting emergency request:", error);
+            showMessage('خطأ', `فشل تسجيل طلب الإصلاح الطارئ: ${error.message}`);
+        }
+    };
+
+    const handleEditRequest = (request) => {
+        setEditingRequest(request);
+        setFormData(request);
+    };
+
+    const handleDeleteRequest = (requestId) => {
+        showMessage(
+            'تأكيد الحذف',
+            'هل أنت متأكد أنك تريد حذف طلب الإصلاح هذا؟',
+            true,
+            async () => {
+                try {
+                    const maintenanceCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/maintenanceRecords`);
+                    const docRef = doc(maintenanceCollectionRef, requestId);
+                    await deleteDoc(docRef);
+                    showMessage('نجاح', 'تم حذف طلب الإصلاح بنجاح!');
+                } catch (error) {
+                    console.error("Error deleting emergency request:", error);
+                    showMessage('خطأ', `فشل حذف طلب الإصلاح: ${error.message}`);
+                }
+            }
+        );
+    };
+
+    const emergencyRequests = useContext(AppContext).maintenanceRecords.filter(rec => rec.type === 'صيانة طارئة');
+
+    return (
+        <div className="bg-white p-6 rounded-lg shadow-md">
+            <h2 className="text-xl font-semibold mb-4 text-gray-800">نموذج طلب إصلاح طارئ</h2>
+            <form onSubmit={handleSubmit} className="space-y-4 mb-8">
+                <SelectField
+                    label="رقم السيارة"
+                    name="carId"
+                    value={formData.carId}
+                    onChange={handleCarSelect}
+                    options={cars.map(car => ({ value: car.id, label: car.carNumber }))}
+                    required
+                />
+                <InputField label="التاريخ" name="date" type="date" value={formData.date} onChange={handleInputChange} required />
+                <InputField label="وصف العطل" name="description" value={formData.description} onChange={handleInputChange} type="textarea" required />
+                <SelectField
+                    label="الأولوية"
+                    name="priority"
+                    value={formData.priority}
+                    onChange={handleInputChange}
+                    options={['عاجل', 'متوسط', 'منخفض']}
+                />
+                <SelectField
+                    label="الحالة"
+                    name="status"
+                    value={formData.status}
+                    onChange={handleInputChange}
+                    options={['قيد الانتظار', 'قيد الإصلاح', 'تم الإصلاح', 'بانتظار قطع الغيار']}
+                />
+                <InputField label="التكلفة المتوقعة (ريال)" name="estimatedCost" type="number" value={formData.estimatedCost} onChange={handleInputChange} />
+                <InputField label="التكلفة الفعلية (ريال)" name="actualCost" type="number" value={formData.actualCost} onChange={handleInputChange} />
+                <InputField label="التوقيع" name="signature" value={formData.signature} onChange={handleInputChange} required />
+
+                <button
+                    type="submit"
+                    className="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors duration-200 shadow-md"
+                >
+                    {editingRequest ? 'تحديث الطلب' : 'إرسال طلب الإصلاح'}
+                </button>
+                {editingRequest && (
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setEditingRequest(null);
+                            setFormData({
+                                carId: '', carNumber: '', date: new Date().toISOString().split('T')[0],
+                                description: '', priority: 'متوسط', status: 'قيد الانتظار',
+                                estimatedCost: 0, actualCost: 0, signature: ''
+                            });
+                        }}
+                        className="mr-2 px-6 py-3 bg-gray-400 text-white rounded-lg hover:bg-gray-500 transition-colors duration-200 shadow-md"
+                    >
+                        إلغاء التعديل
+                    </button>
+                )}
+            </form>
+
+            <h3 className="text-lg font-semibold mb-4 text-gray-800">طلبات الإصلاح الطارئة المسجلة</h3>
+            {emergencyRequests.length === 0 ? (
+                <p className="text-gray-600">لا توجد طلبات إصلاح طارئة مسجلة.</p>
+            ) : (
+                <div className="overflow-x-auto">
+                    <table className="min-w-full bg-white border border-gray-200 rounded-lg">
+                        <thead className="bg-gray-100">
+                            <tr>
+                                <th className="py-3 px-4 border-b text-right">رقم السيارة</th>
+                                <th className="py-3 px-4 border-b text-right">التاريخ</th>
+                                <th className="py-3 px-4 border-b text-right">وصف العطل</th>
+                                <th className="py-3 px-4 border-b text-right">الأولوية</th>
+                                <th className="py-3 px-4 border-b text-right">الحالة</th>
+                                <th className="py-3 px-4 border-b text-right">التكلفة المتوقعة</th>
+                                <th className="py-3 px-4 border-b text-right">التكلفة الفعلية</th>
+                                <th className="py-3 px-4 border-b text-right">الإجراءات</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {emergencyRequests.map(req => (
+                                <tr key={req.id} className="hover:bg-gray-50 transition-colors duration-150">
+                                    <td className="py-3 px-4 border-b">{req.carNumber}</td>
+                                    <td className="py-3 px-4 border-b">{new Date(req.date).toLocaleDateString('ar-SA')}</td>
+                                    <td className="py-3 px-4 border-b">{req.description}</td>
+                                    <td className="py-3 px-4 border-b">{req.priority}</td>
+                                    <td className="py-3 px-4 border-b">{req.status}</td>
+                                    <td className="py-3 px-4 border-b">{req.estimatedCost} ريال</td>
+                                    <td className="py-3 px-4 border-b">{req.actualCost} ريال</td>
+                                    <td className="py-3 px-4 border-b">
+                                        <button
+                                            onClick={() => handleEditRequest(req)}
+                                            className="ml-2 px-3 py-1 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors duration-200 text-sm"
+                                        >
+                                            تعديل
+                                        </button>
+                                        <button
+                                            onClick={() => handleDeleteRequest(req.id)}
+                                            className="px-3 py-1 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors duration-200 text-sm"
+                                        >
+                                            حذف
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+        </div>
+    );
+};
+
+
+// Monthly Maintenance Form Component
+const MonthlyMaintenanceForm = () => {
+    const { db, userId, cars, showMessage } = useContext(AppContext);
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+    const [formData, setFormData] = useState({
+        carId: '',
+        carNumber: '',
+        lastMaintenanceDate: new Date().toISOString().split('T')[0],
+        maintenanceType: '', // 'شهرية', 'ربع سنوية', 'سنوية'
+        mileage: 0,
+        tasksCompleted: '', // Comma separated string or array
+        nextMaintenanceDate: '',
+        notes: '',
+    });
+
+    const [editingRecord, setEditingRecord] = useState(null);
+
+    const handleCarSelect = (e) => {
+        const selectedCarId = e.target.value;
+        const car = cars.find(c => c.id === selectedCarId);
+        setFormData(prev => ({
+            ...prev,
+            carId: selectedCarId,
+            carNumber: car ? car.carNumber : '',
+        }));
+    };
+
+    const handleInputChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
+    };
+
+    const calculateNextMaintenanceDate = (type, lastDate, mileage) => {
+        const d = new Date(lastDate);
+        switch (type) {
+            case 'شهرية':
+                d.setMonth(d.getMonth() + 1);
+                return d.toISOString().split('T')[0];
+            case 'ربع سنوية':
+                d.setMonth(d.getMonth() + 3);
+                return d.toISOString().split('T')[0];
+            case 'سنوية':
+                d.setFullYear(d.getFullYear() + 1);
+                return d.toISOString().split('T')[0];
+            default:
+                return '';
+        }
+    };
+
+    useEffect(() => {
+        if (formData.lastMaintenanceDate && formData.maintenanceType) {
+            const nextDate = calculateNextMaintenanceDate(formData.maintenanceType, formData.lastMaintenanceDate, formData.mileage);
+            setFormData(prev => ({ ...prev, nextMaintenanceDate: nextDate }));
+        }
+    }, [formData.lastMaintenanceDate, formData.maintenanceType, formData.mileage]);
+
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!db || !userId) {
+            showMessage('خطأ', 'قاعدة البيانات أو معرف المستخدم غير متاح.');
+            return;
+        }
+        if (!formData.carId || !formData.lastMaintenanceDate || !formData.maintenanceType || !formData.mileage) {
+            showMessage('خطأ', 'الرجاء ملء الحقول المطلوبة (رقم السيارة، تاريخ آخر صيانة، نوع الصيانة، المسافة المقطوعة).');
+            return;
+        }
+
+        try {
+            const maintenanceCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/maintenanceRecords`);
+            if (editingRecord) {
+                const docRef = doc(maintenanceCollectionRef, editingRecord.id);
+                await updateDoc(docRef, { ...formData, timestamp: new Date() });
+                showMessage('نجاح', 'تم تحديث سجل الصيانة الدورية بنجاح!');
+                setEditingRecord(null);
+            } else {
+                await addDoc(maintenanceCollectionRef, {
+                    ...formData,
+                    type: formData.maintenanceType, // Use the selected type
+                    timestamp: new Date(),
+                });
+                showMessage('نجاح', 'تم تسجيل الصيانة الدورية بنجاح!');
+            }
+            setFormData({
+                carId: '', carNumber: '', lastMaintenanceDate: new Date().toISOString().split('T')[0],
+                maintenanceType: '', mileage: 0, tasksCompleted: '', nextMaintenanceDate: '', notes: ''
+            });
+        } catch (error) {
+            console.error("Error submitting monthly maintenance:", error);
+            showMessage('خطأ', `فشل تسجيل الصيانة الدورية: ${error.message}`);
+        }
+    };
+
+    const handleEditRecord = (record) => {
+        setEditingRecord(record);
+        setFormData(record);
+    };
+
+    const handleDeleteRecord = (recordId) => {
+        showMessage(
+            'تأكيد الحذف',
+            'هل أنت متأكد أنك تريد حذف سجل الصيانة هذا؟',
+            true,
+            async () => {
+                try {
+                    const maintenanceCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/maintenanceRecords`);
+                    const docRef = doc(maintenanceCollectionRef, recordId);
+                    await deleteDoc(docRef);
+                    showMessage('نجاح', 'تم حذف سجل الصيانة بنجاح!');
+                } catch (error) {
+                    console.error("Error deleting maintenance record:", error);
+                    showMessage('خطأ', `فشل حذف سجل الصيانة: ${error.message}`);
+                }
+            }
+        );
+    };
+
+    const periodicMaintenanceRecords = useContext(AppContext).maintenanceRecords.filter(rec =>
+        ['شهرية', 'ربع سنوية', 'سنوية'].includes(rec.type)
+    );
+
+    return (
+        <div className="bg-white p-6 rounded-lg shadow-md">
+            <h2 className="text-xl font-semibold mb-4 text-gray-800">جدول الصيانة الدورية</h2>
+            <form onSubmit={handleSubmit} className="space-y-4 mb-8">
+                <SelectField
+                    label="رقم السيارة"
+                    name="carId"
+                    value={formData.carId}
+                    onChange={handleCarSelect}
+                    options={cars.map(car => ({ value: car.id, label: car.carNumber }))}
+                    required
+                />
+                <InputField label="تاريخ آخر صيانة" name="lastMaintenanceDate" type="date" value={formData.lastMaintenanceDate} onChange={handleInputChange} required />
+                <SelectField
+                    label="نوع الصيانة"
+                    name="maintenanceType"
+                    value={formData.maintenanceType}
+                    onChange={handleInputChange}
+                    options={['شهرية', 'ربع سنوية', 'سنوية']}
+                    required
+                />
+                <InputField label="المسافة المقطوعة (كم)" name="mileage" type="number" value={formData.mileage} onChange={handleInputChange} required />
+                <InputField label="المهام المنجزة" name="tasksCompleted" value={formData.tasksCompleted} onChange={handleInputChange} type="textarea" placeholder="مثال: تغيير زيت محرك، فلتر هواء" />
+                <InputField label="الموعد القادم" name="nextMaintenanceDate" type="date" value={formData.nextMaintenanceDate} onChange={handleInputChange} readOnly />
+                <InputField label="ملاحظات" name="notes" value={formData.notes} onChange={handleInputChange} type="textarea" />
+
+                <button
+                    type="submit"
+                    className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 shadow-md"
+                >
+                    {editingRecord ? 'تحديث السجل' : 'تسجيل الصيانة'}
+                </button>
+                {editingRecord && (
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setEditingRecord(null);
+                            setFormData({
+                                carId: '', carNumber: '', lastMaintenanceDate: new Date().toISOString().split('T')[0],
+                                maintenanceType: '', mileage: 0, tasksCompleted: '', nextMaintenanceDate: '', notes: ''
+                            });
+                        }}
+                        className="mr-2 px-6 py-3 bg-gray-400 text-white rounded-lg hover:bg-gray-500 transition-colors duration-200 shadow-md"
+                    >
+                        إلغاء التعديل
+                    </button>
+                )}
+            </form>
+
+            <h3 className="text-lg font-semibold mb-4 text-gray-800">سجلات الصيانة الدورية</h3>
+            {periodicMaintenanceRecords.length === 0 ? (
+                <p className="text-gray-600">لا توجد سجلات صيانة دورية مسجلة.</p>
+            ) : (
+                <div className="overflow-x-auto">
+                    <table className="min-w-full bg-white border border-gray-200 rounded-lg">
+                        <thead className="bg-gray-100">
+                            <tr>
+                                <th className="py-3 px-4 border-b text-right">رقم السيارة</th>
+                                <th className="py-3 px-4 border-b text-right">نوع الصيانة</th>
+                                <th className="py-3 px-4 border-b text-right">تاريخ آخر صيانة</th>
+                                <th className="py-3 px-4 border-b text-right">المسافة (كم)</th>
+                                <th className="py-3 px-4 border-b text-right">المهام المنجزة</th>
+                                <th className="py-3 px-4 border-b text-right">الموعد القادم</th>
+                                <th className="py-3 px-4 border-b text-right">الإجراءات</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {periodicMaintenanceRecords.map(rec => (
+                                <tr key={rec.id} className="hover:bg-gray-50 transition-colors duration-150">
+                                    <td className="py-3 px-4 border-b">{rec.carNumber}</td>
+                                    <td className="py-3 px-4 border-b">{rec.maintenanceType}</td>
+                                    <td className="py-3 px-4 border-b">{new Date(rec.lastMaintenanceDate).toLocaleDateString('ar-SA')}</td>
+                                    <td className="py-3 px-4 border-b">{rec.mileage}</td>
+                                    <td className="py-3 px-4 border-b">{rec.tasksCompleted}</td>
+                                    <td className="py-3 px-4 border-b">{new Date(rec.nextMaintenanceDate).toLocaleDateString('ar-SA')}</td>
+                                    <td className="py-3 px-4 border-b">
+                                        <button
+                                            onClick={() => handleEditRecord(rec)}
+                                            className="ml-2 px-3 py-1 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors duration-200 text-sm"
+                                        >
+                                            تعديل
+                                        </button>
+                                        <button
+                                            onClick={() => handleDeleteRecord(rec.id)}
+                                            className="px-3 py-1 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors duration-200 text-sm"
+                                        >
+                                            حذف
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// Annual Report Component
+const AnnualReport = () => {
+    const { cars, maintenanceRecords, showMessage } = useContext(AppContext);
+    const [selectedCarId, setSelectedCarId] = useState('');
+    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+    const [reportData, setReportData] = useState(null);
+
+    const generateReport = () => {
+        if (!selectedCarId || !selectedYear) {
+            showMessage('خطأ', 'الرجاء اختيار السيارة والسنة لإنشاء التقرير.');
+            return;
+        }
+
+        const car = cars.find(c => c.id === selectedCarId);
+        if (!car) {
+            showMessage('خطأ', 'السيارة المختارة غير موجودة.');
+            return;
+        }
+
+        const yearRecords = maintenanceRecords.filter(record => {
+            const recordDate = new Date(record.date || record.lastMaintenanceDate || record.timestamp.toDate());
+            return record.carId === selectedCarId && recordDate.getFullYear() === selectedYear;
+        });
+
+        let totalAnnualMileage = 0;
+        let totalCost = 0;
+        const maintenanceCount = {
+            'صيانة يومية': 0,
+            'صيانة أسبوعية': 0,
+            'شهرية': 0,
+            'ربع سنوية': 0,
+            'سنوية': 0,
+            'صيانة طارئة': 0,
+        };
+        const recurringFaults = {}; // { description: count }
+
+        yearRecords.forEach(record => {
+            if (record.mileage) {
+                totalAnnualMileage += parseInt(record.mileage, 10);
+            }
+            if (record.actualCost) {
+                totalCost += parseFloat(record.actualCost);
+            } else if (record.estimatedCost && record.status === 'تم الإصلاح') {
+                totalCost += parseFloat(record.estimatedCost);
+            }
+
+            if (maintenanceCount[record.type]) {
+                maintenanceCount[record.type]++;
+            } else {
+                maintenanceCount[record.type] = 1;
+            }
+
+            if (record.type === 'صيانة طارئة' && record.description) {
+                recurringFaults[record.description] = (recurringFaults[record.description] || 0) + 1;
+            }
+        });
+
+        const sortedRecurringFaults = Object.entries(recurringFaults)
+            .filter(([, count]) => count > 1) // Only show faults that occurred more than once
+            .sort((a, b) => b[1] - a[1])
+            .map(([desc, count]) => `${desc} (${count} مرات)`);
+
+        setReportData({
+            carNumber: car.carNumber,
+            annualMileage: totalAnnualMileage,
+            totalMaintenanceCount: yearRecords.length,
+            maintenanceBreakdown: maintenanceCount,
+            totalCosts: totalCost,
+            recurringFaults: sortedRecurringFaults.length > 0 ? sortedRecurringFaults.join(', ') : 'لا توجد أعطال متكررة',
+            carConditionRating: 'جيدة (⭐️⭐️⭐️⭐️)' // This would ideally be a manual input or calculated based on severity of faults
+        });
+    };
+
+    const handlePrint = () => {
+        const printContent = document.getElementById('annual-report-content').innerHTML;
+        const originalContent = document.body.innerHTML;
+        document.body.innerHTML = printContent;
+        window.print();
+        document.body.innerHTML = originalContent;
+        window.location.reload(); // Reload to restore original page
+    };
+
+    const handleShare = () => {
+        // In a real application, this would generate a unique, read-only link to the report.
+        // For this example, we'll just provide the current URL as a placeholder.
+        const reportUrl = window.location.href; // This is the app URL, not a specific report URL
+        navigator.clipboard.writeText(reportUrl)
+            .then(() => showMessage('نجاح', 'تم نسخ رابط التطبيق إلى الحافظة. يمكنك مشاركته مع الآخرين لعرض التقارير (إذا كان لديهم صلاحية الوصول).'))
+            .catch(() => showMessage('خطأ', 'فشل نسخ الرابط إلى الحافظة. يرجى النسخ يدويًا.'));
+    };
+
+    return (
+        <div className="bg-white p-6 rounded-lg shadow-md">
+            <h2 className="text-xl font-semibold mb-4 text-gray-800">تقرير صيانة سنوي</h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <SelectField
+                    label="اختر السيارة"
+                    name="selectedCarId"
+                    value={selectedCarId}
+                    onChange={(e) => setSelectedCarId(e.target.value)}
+                    options={cars.map(car => ({ value: car.id, label: car.carNumber }))}
+                    required
+                />
+                <SelectField
+                    label="اختر السنة"
+                    name="selectedYear"
+                    value={selectedYear}
+                    onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                    options={Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i)} // Last 5 years
+                    required
+                />
+            </div>
+
+            <button
+                onClick={generateReport}
+                className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors duration-200 shadow-md mb-6"
+            >
+                إنشاء التقرير
+            </button>
+
+            {reportData && (
+                <div id="annual-report-content" className="border border-gray-200 p-6 rounded-lg bg-gray-50 mt-8">
+                    <h3 className="text-xl font-bold mb-4 text-gray-800">تقرير الصيانة السنوي لـ {reportData.carNumber} - سنة {selectedYear}</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-gray-700">
+                        <p><strong>رقم السيارة:</strong> {reportData.carNumber}</p>
+                        <p><strong>المسافة السنوية:</strong> {reportData.annualMileage} كم</p>
+                        <p><strong>عدد مرات الصيانة:</strong> {reportData.totalMaintenanceCount}</p>
+                        <p><strong>التكاليف الإجمالية:</strong> {reportData.totalCosts} ريال</p>
+                        <p><strong>الأعطال المتكررة:</strong> {reportData.recurringFaults}</p>
+                        <p><strong>تقييم حالة السيارة:</strong> {reportData.carConditionRating}</p>
+                    </div>
+                    <div className="mt-6">
+                        <h4 className="text-lg font-semibold mb-2">تفصيل أنواع الصيانة:</h4>
+                        <ul className="list-disc list-inside text-gray-700">
+                            {Object.entries(reportData.maintenanceBreakdown).map(([type, count]) => (
+                                <li key={type}>{type}: {count} مرات</li>
+                            ))}
+                        </ul>
+                    </div>
+                    <div className="flex justify-end space-x-2 mt-6">
+                        <button
+                            onClick={handlePrint}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors duration-200"
+                        >
+                            طباعة التقرير
+                        </button>
+                        <button
+                            onClick={handleShare}
+                            className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors duration-200"
+                        >
+                            مشاركة الرابط
+                        </button>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+
+export default App;
+�
